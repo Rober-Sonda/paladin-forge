@@ -74,6 +74,8 @@ MENU_ITEMS = [
     ("14", "Token & cost dashboard", "Model usage, cost and estimates"),
     ("15", "Model pricing settings", "Configure USD/token estimations"),
     ("16", "Agent catalog manager", "Create and customize team agents"),
+    ("17", "Console code editor", "Edit config files in terminal editor"),
+    ("18", "Duplicate screen mode", "Toggle mirrored command deck"),
     ("0", "Exit", "Leave the cockpit"),
 ]
 
@@ -309,6 +311,9 @@ def build_state(project):
             "by_model": {},
             "by_agent": {},
         },
+        "ui": {
+            "duplicate_screen": False,
+        },
     }
 
 
@@ -406,6 +411,12 @@ def render_menu(state):
             f"{style(key.rjust(2), ANSI.BOLD, ANSI.BRIGHT_YELLOW)}  {style(label, ANSI.BRIGHT_WHITE)}  {style('· ' + desc, ANSI.BRIGHT_BLACK)}"
         )
     box("Command Deck", menu_lines, accent=ANSI.BRIGHT_MAGENTA)
+    if state.get("ui", {}).get("duplicate_screen"):
+        mirrored = [
+            style("Mirror mode active: secondary panel enabled", ANSI.BRIGHT_GREEN),
+            *[f"{item[0].rjust(2)}  {item[1]}" for item in MENU_ITEMS],
+        ]
+        box("Command Deck Mirror", mirrored, accent=ANSI.BRIGHT_CYAN)
     render_footer(state)
 
 
@@ -783,6 +794,8 @@ def show_help_center(state):
         "◌ pending | ◉ running | ✓ done | ↷ skipped | ✖ failed",
         "Delegation Bus shows current stage ownership in real time.",
         "Token usage and estimated costs are session-based in footer/dashboard.",
+        "Duplicate Screen Mode (18) shows a mirrored command deck.",
+        "Console Code Editor (17) opens editable files in terminal editor.",
         "",
         style("Troubleshooting", ANSI.BOLD, ANSI.BRIGHT_WHITE),
         "- If stage fails: check command output and fix project command/tooling.",
@@ -979,6 +992,68 @@ def manage_agent_catalog(state):
             wait_for_enter()
 
 
+def pick_terminal_editor():
+    editor = os.environ.get("EDITOR", "").strip()
+    if editor:
+        return editor
+    for candidate in ["nano", "vim", "vi"]:
+        rc = subprocess.run(f"command -v {candidate} >/dev/null 2>&1", shell=True).returncode
+        if rc == 0:
+            return candidate
+    return None
+
+
+def console_code_editor(state):
+    clear_screen()
+    render_header(state, subtitle="console code editor")
+    project_path = Path(state["project"])
+    files = [
+        ("1", CATALOG),
+        ("2", MODEL_PRICING_FILE),
+        ("3", project_path / CONFIG),
+        ("4", BASE / "README.md"),
+    ]
+    lines = [f"{key}. {path}" for key, path in files]
+    lines.append("5. Custom path")
+    box("Editable files", lines, accent=ANSI.BRIGHT_BLUE)
+
+    choice = input_default("Choose file", "1")
+    selected = None
+    if choice == "5":
+        custom = input(f"{style('➜', ANSI.BRIGHT_MAGENTA, ANSI.BOLD)} File path: ").strip()
+        if custom:
+            selected = Path(custom).expanduser().resolve()
+    else:
+        for key, path in files:
+            if choice == key:
+                selected = path
+                break
+
+    if selected is None:
+        print_notice("Selección inválida", "error")
+        return
+
+    selected.parent.mkdir(parents=True, exist_ok=True)
+    if not selected.exists():
+        selected.write_text("", encoding="utf-8")
+
+    editor = pick_terminal_editor()
+    if not editor:
+        print_notice("No hay editor disponible (setea $EDITOR o instala nano/vim)", "error")
+        return
+
+    print_notice(f"Abriendo {selected} con {editor}...", "info")
+    rc = subprocess.run(f'{editor} "{selected}"', shell=True).returncode
+    if rc == 0:
+        state["last_action"] = f"Edited file: {selected}"
+        print_notice("Archivo actualizado.", "success")
+        if selected == CATALOG:
+            ensure_model_pricing(load_json(CATALOG))
+            sync_pipeline_state(state, preserve_status=True)
+    else:
+        print_notice("El editor cerró con error", "error")
+
+
 def open_file_preview(project, state):
     clear_screen()
     render_header(state, subtitle="code preview")
@@ -1062,6 +1137,15 @@ def main_menu(project):
         elif option == "16":
             manage_agent_catalog(state)
             sync_pipeline_state(state, preserve_status=True)
+        elif option == "17":
+            console_code_editor(state)
+            wait_for_enter()
+        elif option == "18":
+            current = state.setdefault("ui", {}).get("duplicate_screen", False)
+            state["ui"]["duplicate_screen"] = not current
+            state["last_action"] = f"Duplicate screen mode {'enabled' if not current else 'disabled'}"
+            print_notice(state["last_action"], "success")
+            wait_for_enter()
         elif option == "0":
             clear_screen()
             print(style(f"{APP_NAME} signing off. Bye.", ANSI.BOLD, ANSI.BRIGHT_MAGENTA))

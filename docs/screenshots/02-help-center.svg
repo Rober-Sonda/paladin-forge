@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="760" viewBox="0 0 1400 760">
+  <rect width="1400" height="760" fill="#0b1020"/>
+  <rect x="24" y="24" width="1352" height="80" rx="10" fill="#111a33" stroke="#7c4dff"/>
+  <text x="700" y="62" fill="#e6f1ff" font-family="monospace" font-size="30" text-anchor="middle">AgentForge Help Center</text>
+  <text x="700" y="88" fill="#8ba3c7" font-family="monospace" font-size="16" text-anchor="middle">Guided usage and troubleshooting</text>
+
+  <rect x="24" y="124" width="1352" height="612" rx="10" fill="#0f1730" stroke="#39d98a"/>
+  <text x="44" y="156" fill="#ffffff" font-family="monospace" font-size="22">Operator Guide</text>
+  <text x="44" y="196" fill="#86ffb0" font-family="monospace" font-size="18">Quick workflow</text>
+  <text x="44" y="224" fill="#9db0d3" font-family="monospace" font-size="16">1) Init config → 2) Reassign stage agents → 3) Tune skills</text>
+  <text x="44" y="250" fill="#9db0d3" font-family="monospace" font-size="16">4) Dry-run pipeline → 5) Real execution</text>
+
+  <text x="44" y="300" fill="#86ffb0" font-family="monospace" font-size="18">Telemetry indicators</text>
+  <text x="44" y="328" fill="#9db0d3" font-family="monospace" font-size="16">◌ pending | ◉ running | ✓ done | ↷ skipped | ✖ failed</text>
+  <text x="44" y="354" fill="#9db0d3" font-family="monospace" font-size="16">Delegation Bus + Active handoff keep full stage visibility.</text>
+
+  <text x="44" y="404" fill="#86ffb0" font-family="monospace" font-size="18">Practical shortcuts</text>
+  <text x="44" y="432" fill="#9db0d3" font-family="monospace" font-size="16">Option 17: Console code editor</text>
+  <text x="44" y="458" fill="#9db0d3" font-family="monospace" font-size="16">Option 18: Duplicate screen mode</text>
+
+  <text x="44" y="508" fill="#86ffb0" font-family="monospace" font-size="18">Troubleshooting</text>
+  <text x="44" y="536" fill="#9db0d3" font-family="monospace" font-size="16">- Stage fails: inspect command output and fix project command/tooling</text>
+  <text x="44" y="562" fill="#9db0d3" font-family="monospace" font-size="16">- Cost remains 0: set model pricing in option 15</text>
+  <text x="44" y="588" fill="#9db0d3" font-family="monospace" font-size="16">- Missing agent: create/update in option 16</text>
+</svg>

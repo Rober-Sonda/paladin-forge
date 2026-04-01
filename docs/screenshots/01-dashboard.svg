@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="760" viewBox="0 0 1400 760">
+  <rect width="1400" height="760" fill="#0b1020"/>
+  <rect x="24" y="24" width="1352" height="80" rx="10" fill="#111a33" stroke="#7c4dff"/>
+  <text x="700" y="62" fill="#e6f1ff" font-family="monospace" font-size="30" text-anchor="middle">AgentForge — Epic multi-agent terminal cockpit</text>
+  <text x="700" y="88" fill="#8ba3c7" font-family="monospace" font-size="16" text-anchor="middle">Project · /workspace/demo | community-ready console</text>
+
+  <rect x="24" y="124" width="910" height="390" rx="10" fill="#0f1730" stroke="#ff7edb"/>
+  <text x="44" y="154" fill="#ffffff" font-family="monospace" font-size="20">Command Deck</text>
+  <text x="44" y="186" fill="#9db0d3" font-family="monospace" font-size="16">1) Set project path      7) Run pipeline (dry-run)      13) Help center</text>
+  <text x="44" y="212" fill="#9db0d3" font-family="monospace" font-size="16">2) Init project config   8) Run pipeline (real)         14) Token &amp; cost dashboard</text>
+  <text x="44" y="238" fill="#9db0d3" font-family="monospace" font-size="16">3) List agents           9) Git dashboard               15) Model pricing settings</text>
+  <text x="44" y="264" fill="#9db0d3" font-family="monospace" font-size="16">4) Reassign stage        10) View git diff              16) Agent catalog manager</text>
+  <text x="44" y="290" fill="#9db0d3" font-family="monospace" font-size="16">5) Manage skills         11) Preview code               17) Console code editor</text>
+  <text x="44" y="316" fill="#9db0d3" font-family="monospace" font-size="16">6) Compose prompt        12) VS Code tasks              18) Duplicate screen mode</text>
+
+  <rect x="954" y="124" width="422" height="390" rx="10" fill="#0f1730" stroke="#39d98a"/>
+  <text x="974" y="154" fill="#ffffff" font-family="monospace" font-size="20">Command Deck Mirror</text>
+  <text x="974" y="186" fill="#86ffb0" font-family="monospace" font-size="15">Mirror mode active</text>
+  <text x="974" y="212" fill="#9db0d3" font-family="monospace" font-size="14">Secondary panel visible to avoid context loss.</text>
+
+  <rect x="24" y="536" width="1352" height="200" rx="10" fill="#0f1730" stroke="#4da3ff"/>
+  <text x="44" y="566" fill="#ffffff" font-family="monospace" font-size="20">Mission Telemetry</text>
+  <text x="44" y="596" fill="#9db0d3" font-family="monospace" font-size="16">◌ discovery/planner   ◉ implementation/migrator   ✓ quality/validator   ↷ release/deploy</text>
+  <text x="44" y="624" fill="#9db0d3" font-family="monospace" font-size="16">Pipeline status · done=2 running=1 pending=3 failed=0</text>
+  <text x="44" y="652" fill="#9db0d3" font-family="monospace" font-size="16">Token usage · in=12840 out=3920 cost≈$0.041200</text>
+  <text x="44" y="680" fill="#9db0d3" font-family="monospace" font-size="16">Active handoff · implementation → migrator/ui-refactor | gpt-5.3-codex</text>
+</svg>

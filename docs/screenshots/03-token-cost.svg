@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="760" viewBox="0 0 1400 760">
+  <rect width="1400" height="760" fill="#0b1020"/>
+  <rect x="24" y="24" width="1352" height="80" rx="10" fill="#111a33" stroke="#7c4dff"/>
+  <text x="700" y="62" fill="#e6f1ff" font-family="monospace" font-size="30" text-anchor="middle">Token &amp; Cost Dashboard</text>
+  <text x="700" y="88" fill="#8ba3c7" font-family="monospace" font-size="16" text-anchor="middle">Per session / model / agent observability</text>
+
+  <rect x="24" y="124" width="1352" height="160" rx="10" fill="#0f1730" stroke="#4da3ff"/>
+  <text x="44" y="156" fill="#ffffff" font-family="monospace" font-size="20">Session totals</text>
+  <text x="44" y="186" fill="#9db0d3" font-family="monospace" font-size="16">Input tokens · 19820</text>
+  <text x="44" y="212" fill="#9db0d3" font-family="monospace" font-size="16">Output tokens · 6820</text>
+  <text x="44" y="238" fill="#9db0d3" font-family="monospace" font-size="16">Estimated cost (USD) · $0.069410</text>
+
+  <rect x="24" y="304" width="1352" height="190" rx="10" fill="#0f1730" stroke="#ff7edb"/>
+  <text x="44" y="336" fill="#ffffff" font-family="monospace" font-size="20">Usage by model</text>
+  <text x="44" y="366" fill="#9db0d3" font-family="monospace" font-size="16">gpt-5.3-codex | in=14020 out=4907 cost≈$0.050230 | rates in/out=$1.25/$5.00 per 1M</text>
+  <text x="44" y="392" fill="#9db0d3" font-family="monospace" font-size="16">gpt-5.3-mini  | in=5800  out=1913 cost≈$0.019180 | rates in/out=$0.40/$1.60 per 1M</text>
+
+  <rect x="24" y="514" width="1352" height="222" rx="10" fill="#0f1730" stroke="#ffd166"/>
+  <text x="44" y="546" fill="#ffffff" font-family="monospace" font-size="20">Usage by agent</text>
+  <text x="44" y="576" fill="#9db0d3" font-family="monospace" font-size="16">planner/requirements-analyst | model=gpt-5.3-mini | in=3200 out=1120 cost≈$0.008640</text>
+  <text x="44" y="602" fill="#9db0d3" font-family="monospace" font-size="16">migrator/ui-refactor        | model=gpt-5.3-codex | in=6800 out=2380 cost≈$0.028960</text>
+  <text x="44" y="628" fill="#9db0d3" font-family="monospace" font-size="16">validator/qa-guard          | model=gpt-5.3-codex | in=4020 out=1407 cost≈$0.016920</text>
+  <text x="44" y="654" fill="#9db0d3" font-family="monospace" font-size="16">documentation/readme-maintainer | model=gpt-5.3-mini | in=1820 out=606 cost≈$0.005870</text>
+</svg>

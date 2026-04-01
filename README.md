@@ -18,6 +18,8 @@ AgentForge combina:
 - dashboard de tokens y costo estimado por sesión/modelo/agente
 - configuración editable de pricing por modelo (`USD por 1M` + ratio output)
 - gestor de catálogo para crear/editar agentes y subagentes
+- modo de pantalla duplicada para no perder contexto (mirror command deck)
+- editor de código en consola para catálogos/configs (`$EDITOR`/`nano`/`vi`)
 - prompts versionables por rol y skills
 - instalación simple sin dependencias externas pesadas
 
@@ -40,6 +42,19 @@ Desde la raíz del repo:
 - `14` Token & cost dashboard
 - `15` Model pricing settings
 - `16` Agent catalog manager
+- `17` Console code editor
+- `18` Duplicate screen mode
+
+## Console walkthrough (capturas)
+
+### Dashboard principal + telemetría + mirror mode
+![AgentForge Dashboard](docs/screenshots/01-dashboard.svg)
+
+### Help center (guía operativa)
+![AgentForge Help Center](docs/screenshots/02-help-center.svg)
+
+### Token & cost dashboard
+![AgentForge Token Cost](docs/screenshots/03-token-cost.svg)
 
 ### 4. Inicializar un proyecto
 - `agentforge init . --template full-delivery`
@@ -68,6 +83,11 @@ Desde la raíz del repo:
 - Los costos son estimados en base a prompts compuestos.
 - Tokens estimados con aproximación por longitud de texto.
 - Para costos reales, configura tus tarifas en consola (opción `15`).
+
+## UX de consola (elegante y práctica)
+- Indicadores de estado en todo momento para evitar pérdida de contexto.
+- Mirror mode para pantallas duplicadas cuando necesitas comparar secciones.
+- Edición directa en terminal de archivos clave como en un flujo tipo editor.
 
 ## Casos de uso
 - Migraciones Flutter y UI refactors
