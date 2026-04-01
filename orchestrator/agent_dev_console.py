@@ -49,8 +49,8 @@ class ANSI:
 
 
 STATUS_STYLES = {
-    "idle": ("○", ANSI.BRIGHT_BLACK),
-    "pending": ("◌", ANSI.BRIGHT_BLACK),
+    "idle": ("○", ANSI.BRIGHT_WHITE),
+    "pending": ("◌", ANSI.BRIGHT_WHITE),
     "running": ("◉", ANSI.BRIGHT_CYAN),
     "done": ("✓", ANSI.BRIGHT_GREEN),
     "failed": ("✖", ANSI.BRIGHT_RED),
@@ -371,12 +371,26 @@ def render_footer(state):
         for item in state["pipeline"]:
             symbol, color = STATUS_STYLES.get(item.get("status", "idle"), STATUS_STYLES["idle"])
             label = f"{symbol} {item['stage']}·{item['agent']}/{item['subagent']}"
-            bg = ANSI.BG_CYAN if item.get("status") == "running" else ANSI.BG_BRIGHT_BLACK
-            fg = ANSI.BLACK if item.get("status") == "running" else color
+            status = item.get("status")
+            if status == "running":
+                bg = ANSI.BG_CYAN
+                fg = ANSI.BLACK
+            elif status == "done":
+                bg = ANSI.BG_GREEN
+                fg = ANSI.BLACK
+            elif status == "failed":
+                bg = ANSI.BG_RED
+                fg = ANSI.WHITE
+            elif status == "skipped":
+                bg = ANSI.BG_YELLOW
+                fg = ANSI.BLACK
+            else:
+                bg = ANSI.BG_BRIGHT_BLACK
+                fg = ANSI.BRIGHT_WHITE
             chips.append(pill(label, fg=fg, bg=bg))
         chips_lines = wrap_pills(chips, term_width() - 8)
     else:
-        chips_lines = [pill("No pipeline loaded", fg=ANSI.BRIGHT_BLACK)]
+        chips_lines = [pill("No pipeline loaded", fg=ANSI.BRIGHT_WHITE, bg=ANSI.BG_BRIGHT_BLACK)]
 
     lines = [
         f"{style('Delegation Bus', ANSI.BOLD, ANSI.BRIGHT_CYAN)}",
