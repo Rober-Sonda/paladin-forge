@@ -59,11 +59,17 @@ Desde la raíz del repo:
 ## Demo rápida (60s)
 - Guion y pasos: [docs/demo/DEMO_60S.md](docs/demo/DEMO_60S.md)
 - Script automático de sesión: `scripts/run_demo_60s.sh`
+- Generador automático de GIF: `scripts/make_demo_gif.sh`
+- Guía GIF: [docs/demo/GIF_GUIDE.md](docs/demo/GIF_GUIDE.md)
 - Pack de publicación (X/LinkedIn): [docs/demo/SOCIAL_KIT.md](docs/demo/SOCIAL_KIT.md)
 
 Ejecutar demo automática:
 - `chmod +x scripts/run_demo_60s.sh`
 - `./scripts/run_demo_60s.sh`
+
+Generar GIF de demo:
+- `chmod +x scripts/make_demo_gif.sh`
+- `./scripts/make_demo_gif.sh`
 
 ### 4. Inicializar un proyecto
 - `agentforge init . --template full-delivery`
