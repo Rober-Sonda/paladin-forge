@@ -1,5 +1,6 @@
 logs/
 sandboxes/
+config/model_pricing.json
 __pycache__/
 *.pyc
 .DS_Store
