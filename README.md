@@ -63,6 +63,9 @@ Desde la raíz del repo:
 - Guía GIF: [docs/demo/GIF_GUIDE.md](docs/demo/GIF_GUIDE.md)
 - Pack de publicación (X/LinkedIn): [docs/demo/SOCIAL_KIT.md](docs/demo/SOCIAL_KIT.md)
 
+### Preview GIF
+![AgentForge Console Demo GIF](docs/demo/console-demo-60s.gif)
+
 Ejecutar demo automática:
 - `chmod +x scripts/run_demo_60s.sh`
 - `./scripts/run_demo_60s.sh`
