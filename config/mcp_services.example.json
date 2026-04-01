@@ -1,0 +1,13 @@
+{
+  "services": {
+    "dart-dtd": {
+      "type": "command",
+      "connect": "echo 'replace with real DTD connect command'",
+      "health": "echo 'optional health check'"
+    },
+    "local-web-api": {
+      "type": "http",
+      "url": "http://127.0.0.1:8080/health"
+    }
+  }
+}

@@ -15,6 +15,7 @@ RUNNER = BASE / "scripts" / "agent-run.sh"
 CONFIG = ".agent-team.json"
 MODEL_PRICING_FILE = BASE / "config" / "model_pricing.json"
 AGENT_MEMORY_FILE = BASE / "config" / "agent_memory.json"
+MCP_SERVICES_FILE = BASE / "config" / "mcp_services.json"
 APP_NAME = "AgentForge"
 APP_SUBTITLE = "Epic multi-agent terminal cockpit"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -1338,9 +1339,146 @@ def wait_for_enter():
     input(f"\n{style('Presioná Enter para continuar...', ANSI.DIM, ANSI.BRIGHT_WHITE)}")
 
 
+def ensure_mcp_services():
+    if MCP_SERVICES_FILE.exists():
+        services = load_json(MCP_SERVICES_FILE)
+    else:
+        services = {
+            "services": {
+                "dart-dtd": {
+                    "type": "command",
+                    "connect": "echo 'Setea comando real para conectar DTD en config/mcp_services.json'",
+                    "health": "echo 'dart-dtd no configurado'",
+                },
+                "local-web-api": {
+                    "type": "http",
+                    "url": "http://127.0.0.1:8080/health",
+                },
+            }
+        }
+        save_json(MCP_SERVICES_FILE, services)
+    services.setdefault("services", {})
+    return services
+
+
+def chat_trace(state, *, task, agent, subagent="-", model="n/a", reason=""):
+    label = f"{task} → {agent}/{subagent}"
+    state["active_agent"] = f"{label} | {model}"
+    state["last_action"] = f"Chat delegó: {label}"
+    details = f"{label} | model={model}"
+    if reason:
+        details += f" | motivo: {reason}"
+    print_notice(f"Chat delegation · {details}", "info")
+
+
+def open_project_file_in_editor(state, relative_path, create_if_missing=True):
+    project = Path(state["project"]).resolve()
+    target = (project / relative_path).resolve()
+    if not str(target).startswith(str(project)):
+        print_notice("Path fuera del proyecto no permitido", "error")
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if create_if_missing and not target.exists():
+        target.write_text("", encoding="utf-8")
+    if not target.exists():
+        print_notice("Archivo no existe", "warn")
+        return False
+    editor = pick_terminal_editor()
+    if not editor:
+        print_notice("No hay editor disponible", "error")
+        return False
+    print_notice(f"Abriendo {target} con {editor}", "info")
+    rc = subprocess.run(f'{editor} "{target}"', shell=True).returncode
+    if rc == 0:
+        state["last_action"] = f"Edited file: {target}"
+        print_notice(state["last_action"], "success")
+        return True
+    print_notice("El editor cerró con error", "error")
+    return False
+
+
+def extract_file_path_from_text(message):
+    text = message.strip()
+    quoted = re.search(r"[\"']([^\"']+)[\"']", text)
+    if quoted:
+        return quoted.group(1).strip()
+    path_like = re.search(r"([\w./\\-]+\.[a-zA-Z0-9]+)", text)
+    if path_like:
+        return path_like.group(1).strip()
+    return None
+
+
+def mcp_connect_service(name, state):
+    services = ensure_mcp_services().get("services", {})
+    service = services.get(name)
+    if not service:
+        print_notice(f"Servicio MCP no encontrado: {name}", "error")
+        return False
+
+    sessions = state.setdefault("mcp", {}).setdefault("sessions", {})
+    srv_type = service.get("type", "command")
+
+    if srv_type == "http":
+        url = service.get("url", "")
+        if not url:
+            print_notice(f"Servicio MCP HTTP sin URL: {name}", "error")
+            return False
+        rc = subprocess.run(f'curl -fsS "{url}" >/dev/null 2>&1', shell=True).returncode
+        if rc == 0:
+            sessions[name] = {"type": "http", "status": "connected", "url": url}
+            print_notice(f"MCP conectado ({name}) por HTTP: {url}", "success")
+            return True
+        sessions[name] = {"type": "http", "status": "unreachable", "url": url}
+        print_notice(f"MCP no respondió ({name}) en {url}", "warn")
+        return False
+
+    connect_cmd = service.get("connect", "").strip()
+    if not connect_cmd:
+        print_notice(f"Servicio MCP sin comando de conexión: {name}", "error")
+        return False
+
+    proc = subprocess.Popen(connect_cmd, shell=True)
+    sessions[name] = {"type": "command", "status": "connected", "pid": proc.pid, "connect": connect_cmd}
+    print_notice(f"MCP conectado ({name}) con PID {proc.pid}", "success")
+    return True
+
+
+def mcp_disconnect_service(name, state):
+    sessions = state.setdefault("mcp", {}).setdefault("sessions", {})
+    info = sessions.get(name)
+    if not info:
+        print_notice(f"No hay sesión MCP activa para: {name}", "warn")
+        return False
+    if info.get("type") == "command" and info.get("pid"):
+        subprocess.run(f'kill {int(info["pid"])} >/dev/null 2>&1', shell=True)
+    sessions.pop(name, None)
+    print_notice(f"MCP desconectado: {name}", "success")
+    return True
+
+
+def show_mcp_dashboard(state):
+    services = ensure_mcp_services().get("services", {})
+    sessions = state.setdefault("mcp", {}).setdefault("sessions", {})
+    lines = [style("Configured services", ANSI.BOLD, ANSI.BRIGHT_WHITE)]
+    if not services:
+        lines.append("- (none)")
+    for name, cfg in sorted(services.items()):
+        lines.append(f"- {name} | type={cfg.get('type', 'command')}")
+    lines.extend(["", style("Connected sessions", ANSI.BOLD, ANSI.BRIGHT_WHITE)])
+    if not sessions:
+        lines.append("- (none)")
+    for name, info in sorted(sessions.items()):
+        lines.append(
+            f"- {name} | status={info.get('status', 'unknown')} | "
+            f"{('pid=' + str(info.get('pid'))) if info.get('pid') else ('url=' + str(info.get('url', '-')))}"
+        )
+    box("MCP Service Bridge", lines, accent=ANSI.BRIGHT_CYAN)
+
+
 def chat_help_lines():
     return [
         "Puedes escribir natural: 'hola', 'mostrame agentes', 'corre dry run', 'quiero editar código'.",
+        "También puedes operar servicios MCP sin salir del chat.",
         "Comandos rápidos:",
         "/help                        - ayuda",
         "/status                      - ver estado de pipeline y uso",
@@ -1352,6 +1490,9 @@ def chat_help_lines():
         "/catalog                     - abrir gestor de agentes",
         "/memory                      - abrir memoria por agente",
         "/code                        - abrir workspace de código del proyecto",
+        "/mcp                         - ver dashboard MCP",
+        "/mcp connect <name>          - conectar servicio MCP configurado",
+        "/mcp disconnect <name>       - desconectar servicio MCP",
         "/mirror on|off               - activar/desactivar pantalla duplicada",
         "/project <path>              - cambiar proyecto",
         "/menu                        - volver al menú",
@@ -1442,17 +1583,29 @@ def orchestrator_delegate_request(message, state):
 
     if any(x in text for x in ["memoria", "behavior", "comportamiento"]):
         announce_delegation(state, "memory", "orchestrator", "memory-manager", "gestión de memoria")
+        chat_trace(state, task="memory", agent="orchestrator", subagent="memory-manager", model="n/a", reason="gestión de memoria")
         manage_agent_memory(state)
         return True
 
-    if any(x in text for x in ["editar código", "editar codigo", "crear archivo", "code workspace", "programa"]):
+    if any(x in text for x in ["editar", "abrir", "edit", "editar código", "editar codigo", "crear archivo", "code workspace", "programa", "archivo"]):
+        target_path = extract_file_path_from_text(message)
         announce_delegation(state, "code", "orchestrator", "code-workspace", "edición de código")
-        project_code_workspace(state)
+        chat_trace(state, task="code", agent="orchestrator", subagent="code-workspace", model="n/a", reason="workspace/code edit")
+        if target_path:
+            open_project_file_in_editor(state, target_path, create_if_missing=True)
+        else:
+            project_code_workspace(state)
         return True
 
     if any(x in text for x in ["pricing", "precio", "costo"]):
         announce_delegation(state, "pricing", "orchestrator", "pricing-manager", "costos y tarifas")
+        chat_trace(state, task="pricing", agent="orchestrator", subagent="pricing-manager", model="n/a", reason="cost dashboard")
         show_token_cost_dashboard(state)
+        return True
+
+    if any(x in text for x in ["mcp", "tool server", "servicio externo", "conectar servicio"]):
+        chat_trace(state, task="mcp", agent="orchestrator", subagent="mcp-bridge", model="n/a", reason="integración externa")
+        show_mcp_dashboard(state)
         return True
 
     stage = route_stage_from_text(project, text)
@@ -1460,6 +1613,15 @@ def orchestrator_delegate_request(message, state):
         step = find_stage_by_name(project, stage)
         if step:
             announce_delegation(state, stage, step.get("agent", "migrator"), step.get("subagent"), "solicitud natural")
+            meta = resolve_agent(load_json(CATALOG), step.get("agent", "migrator"), step.get("subagent"))
+            chat_trace(
+                state,
+                task=stage,
+                agent=meta["agent"],
+                subagent=meta["subagent"] or "-",
+                model=meta["model"],
+                reason="compose prompt por lenguaje natural",
+            )
             compose_stage_prompt_by_name(project, state, stage)
             return True
 
@@ -1520,24 +1682,38 @@ def handle_chat_natural_language(message, state):
         render_footer(state)
         return True
     if any(x in text for x in ["agentes", "agente", "models", "modelos"]):
+        chat_trace(state, task="agents", agent="orchestrator", subagent="roster", model="n/a", reason="listar equipo")
         list_agents(state)
         return True
     if "precio" in text or "costo" in text or "token" in text:
+        chat_trace(state, task="pricing", agent="orchestrator", subagent="pricing-manager", model="n/a", reason="costos/tokens")
         show_token_cost_dashboard(state)
         return True
     if "memoria" in text or "behavior" in text or "comport" in text:
+        chat_trace(state, task="memory", agent="orchestrator", subagent="memory-manager", model="n/a", reason="memoria por agente")
         manage_agent_memory(state)
         return True
-    if "codigo" in text or "code" in text or "archivo" in text:
-        project_code_workspace(state)
+    if "editar" in text or "abrir" in text or "codigo" in text or "code" in text or "archivo" in text:
+        chat_trace(state, task="code", agent="orchestrator", subagent="code-workspace", model="n/a", reason="edición código")
+        target_path = extract_file_path_from_text(message)
+        if target_path:
+            open_project_file_in_editor(state, target_path, create_if_missing=True)
+        else:
+            project_code_workspace(state)
+        return True
+    if "mcp" in text or "servicio" in text:
+        chat_trace(state, task="mcp", agent="orchestrator", subagent="mcp-bridge", model="n/a", reason="servicios externos")
+        show_mcp_dashboard(state)
         return True
     if "ayuda" in text or "help" in text:
         box("Ayuda rápida", chat_help_lines(), accent=ANSI.BRIGHT_BLUE)
         return True
     if "dry" in text:
+        chat_trace(state, task="pipeline", agent="orchestrator", subagent="dry-run", model="n/a", reason="simulación")
         run_pipeline(state["project"], state, dry_run=True)
         return True
     if "pipeline" in text or "run" in text or "ejecut" in text:
+        chat_trace(state, task="pipeline", agent="orchestrator", subagent="executor", model="n/a", reason="ejecución completa")
         run_pipeline(state["project"], state, dry_run=False)
         return True
     if "mirror" in text or "duplic" in text:
@@ -1589,30 +1765,81 @@ def chat_assistant(state):
             render_footer(state)
             continue
         if command == "agents":
+            chat_trace(state, task="agents", agent="orchestrator", subagent="roster", model="n/a", reason="comando explícito")
             list_agents(state)
             continue
         if command == "run":
             mode = args[0].lower() if args else "dry"
+            chat_trace(
+                state,
+                task="pipeline",
+                agent="orchestrator",
+                subagent="dry-run" if mode != "real" else "executor",
+                model="n/a",
+                reason=f"/run {mode}",
+            )
             run_pipeline(state["project"], state, dry_run=(mode != "real"))
             continue
         if command == "compose":
             if not args:
                 print_notice("Uso: /compose <stage>", "warn")
                 continue
-            compose_stage_prompt_by_name(state["project"], state, " ".join(args))
+            stage_name = " ".join(args)
+            step = find_stage_by_name(state["project"], stage_name)
+            if step:
+                meta = resolve_agent(load_json(CATALOG), step.get("agent", "migrator"), step.get("subagent"))
+                chat_trace(
+                    state,
+                    task=stage_name,
+                    agent=meta["agent"],
+                    subagent=meta["subagent"] or "-",
+                    model=meta["model"],
+                    reason="/compose",
+                )
+            compose_stage_prompt_by_name(state["project"], state, stage_name)
             continue
         if command == "pricing":
+            chat_trace(state, task="pricing", agent="orchestrator", subagent="pricing-manager", model="n/a", reason="/pricing")
             manage_model_pricing(state)
             continue
         if command == "catalog":
+            chat_trace(state, task="catalog", agent="orchestrator", subagent="catalog-manager", model="n/a", reason="/catalog")
             manage_agent_catalog(state)
             sync_pipeline_state(state, preserve_status=True)
             continue
         if command == "memory":
+            chat_trace(state, task="memory", agent="orchestrator", subagent="memory-manager", model="n/a", reason="/memory")
             manage_agent_memory(state)
             continue
         if command == "code":
-            project_code_workspace(state)
+            chat_trace(state, task="code", agent="orchestrator", subagent="code-workspace", model="n/a", reason="/code")
+            if args:
+                open_project_file_in_editor(state, " ".join(args), create_if_missing=True)
+            else:
+                project_code_workspace(state)
+            continue
+        if command == "mcp":
+            chat_trace(state, task="mcp", agent="orchestrator", subagent="mcp-bridge", model="n/a", reason="/mcp")
+            if not args:
+                show_mcp_dashboard(state)
+                continue
+            action = args[0].lower()
+            if action == "connect":
+                if len(args) < 2:
+                    print_notice("Uso: /mcp connect <name>", "warn")
+                else:
+                    mcp_connect_service(args[1], state)
+                continue
+            if action == "disconnect":
+                if len(args) < 2:
+                    print_notice("Uso: /mcp disconnect <name>", "warn")
+                else:
+                    mcp_disconnect_service(args[1], state)
+                continue
+            if action == "list":
+                show_mcp_dashboard(state)
+                continue
+            print_notice("Uso: /mcp [list|connect <name>|disconnect <name>]", "warn")
             continue
         if command == "mirror":
             if args and args[0].lower() in {"on", "off"}:

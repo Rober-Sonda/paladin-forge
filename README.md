@@ -68,10 +68,15 @@ Comandos útiles en chat:
 - `/pricing`
 - `/catalog`
 - `/memory`
-- `/code`
+- `/code` o `/code <ruta/archivo>`
+- `/mcp`
+- `/mcp connect <servicio>`
+- `/mcp disconnect <servicio>`
 - `/mirror on|off`
 - `/project <path>`
 - `/menu` o `/exit`
+
+En cada tarea del chat se muestra la delegación activa (`Chat delegation`) con agente/subagente/modelo para que se vea qué está ejecutando AgentForge en tiempo real.
 
 ### Memoria por agente
 Cada agente y subagente tiene memoria persistente para:
@@ -87,6 +92,18 @@ Con `21` (o `/code`) puedes:
 - crear archivos nuevos desde cero
 - agregar snippets rápidos
 - generar un scaffold inicial básico
+
+También puedes pedirlo en lenguaje natural:
+- `editar "lib/feature/new_screen.dart"`
+- `abrir pubspec.yaml`
+
+### Servicios MCP desde chat
+Sin salir del chat puedes gestionar conexiones a servicios externos tipo MCP:
+- ver estado: `/mcp`
+- conectar: `/mcp connect <name>`
+- desconectar: `/mcp disconnect <name>`
+
+Configura servicios en `config/mcp_services.json` (se genera automáticamente al primer uso).
 
 ## Console walkthrough (capturas)
 
