@@ -1340,6 +1340,7 @@ def wait_for_enter():
 
 def chat_help_lines():
     return [
+        "Puedes escribir natural: 'hola', 'mostrame agentes', 'corre dry run', 'quiero editar código'.",
         "Comandos rápidos:",
         "/help                        - ayuda",
         "/status                      - ver estado de pipeline y uso",
@@ -1427,6 +1428,12 @@ def compose_stage_prompt_by_name(project, state, stage_name):
 
 def handle_chat_natural_language(message, state):
     text = message.lower()
+    if any(greet in text for greet in ["hola", "buenas", "hello", "hi"]):
+        print_notice("Hola 👋 Decime qué querés hacer y lo ejecuto (agentes, pipeline, memoria, código, costos).", "info")
+        return True
+    if "estado" in text or "status" in text:
+        render_footer(state)
+        return True
     if any(x in text for x in ["agentes", "agente", "models", "modelos"]):
         list_agents(state)
         return True
@@ -1440,7 +1447,7 @@ def handle_chat_natural_language(message, state):
         project_code_workspace(state)
         return True
     if "ayuda" in text or "help" in text:
-        show_help_center(state)
+        box("Ayuda rápida", chat_help_lines(), accent=ANSI.BRIGHT_BLUE)
         return True
     if "dry" in text:
         run_pipeline(state["project"], state, dry_run=True)
@@ -1453,6 +1460,9 @@ def handle_chat_natural_language(message, state):
         state["ui"]["duplicate_screen"] = not current
         state["last_action"] = f"Duplicate screen mode {'enabled' if not current else 'disabled'}"
         print_notice(state["last_action"], "success")
+        return True
+    if "proyecto" in text and "cambiar" in text:
+        print_notice("Usa: /project <path> o escribí 'proyecto <path>'", "info")
         return True
     print_notice("No entendí esa petición. Usa /help para ver comandos.", "warn")
     return False
@@ -1483,6 +1493,9 @@ def chat_assistant(state):
         if command in {"exit", "menu"}:
             state["last_action"] = "Exited chat assistant"
             return
+        if command == "help" and args:
+            handle_chat_natural_language(" ".join(args), state)
+            continue
         if command == "help":
             box("Chat commands", chat_help_lines(), accent=ANSI.BRIGHT_BLUE)
             continue
@@ -1528,6 +1541,14 @@ def chat_assistant(state):
             if not args:
                 print_notice("Uso: /project <path>", "warn")
                 continue
+            new_project = str(Path(" ".join(args)).expanduser().resolve())
+            state["project"] = new_project
+            sync_pipeline_state(state)
+            state["last_action"] = f"Project changed to {new_project}"
+            print_notice(state["last_action"], "success")
+            continue
+
+        if command == "proyecto" and args:
             new_project = str(Path(" ".join(args)).expanduser().resolve())
             state["project"] = new_project
             sync_pipeline_state(state)
