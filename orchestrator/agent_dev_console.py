@@ -76,6 +76,7 @@ MENU_ITEMS = [
     ("16", "Agent catalog manager", "Create and customize team agents"),
     ("17", "Console code editor", "Edit config files in terminal editor"),
     ("18", "Duplicate screen mode", "Toggle mirrored command deck"),
+    ("19", "Chat assistant", "Talk to AgentForge in natural language"),
     ("0", "Exit", "Leave the cockpit"),
 ]
 
@@ -1090,6 +1091,194 @@ def wait_for_enter():
     input(f"\n{style('Presioná Enter para continuar...', ANSI.DIM, ANSI.BRIGHT_WHITE)}")
 
 
+def chat_help_lines():
+    return [
+        "Comandos rápidos:",
+        "/help                        - ayuda",
+        "/status                      - ver estado de pipeline y uso",
+        "/agents                      - listar agentes/subagentes",
+        "/run dry                     - ejecutar pipeline en dry-run",
+        "/run real                    - ejecutar pipeline real",
+        "/compose <stage>             - componer prompt para un stage",
+        "/pricing                     - abrir pricing de modelos",
+        "/catalog                     - abrir gestor de agentes",
+        "/mirror on|off               - activar/desactivar pantalla duplicada",
+        "/project <path>              - cambiar proyecto",
+        "/menu                        - volver al menú",
+        "/exit                        - salir del chat",
+    ]
+
+
+def parse_chat_command(text):
+    raw = text.strip()
+    if not raw:
+        return None, []
+    if raw.startswith("/"):
+        parts = raw[1:].split()
+    else:
+        parts = raw.split()
+    if not parts:
+        return None, []
+    return parts[0].lower(), parts[1:]
+
+
+def find_stage_by_name(project, stage_name):
+    cfg_path = ensure_project_config(project)
+    cfg = load_json(cfg_path)
+    for step in cfg.get("pipeline", []):
+        if step.get("stage", "").lower() == stage_name.lower():
+            return step
+    return None
+
+
+def compose_stage_prompt_by_name(project, state, stage_name):
+    step = find_stage_by_name(project, stage_name)
+    if not step:
+        print_notice(f"No existe stage: {stage_name}", "error")
+        return
+
+    catalog = load_json(CATALOG)
+    pricing = ensure_model_pricing(catalog)
+    meta = resolve_agent(catalog, step["agent"], step.get("subagent"))
+    skills = dedup(meta["skills"] + step.get("skills", []))
+    out = BASE / "logs" / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{step['stage']}-chat.prompt.md"
+    composed = compose_prompt(meta["prompt"], skills)
+
+    header = [
+        "# ===== AGENT SUBTEAM PROMPT =====",
+        f"# agent: {meta['agent']}",
+        f"# subagent: {meta['subagent'] or '(none)'}",
+        f"# model: {meta['model']}",
+        f"# prompt: {meta['prompt']}",
+        f"# skills: {' '.join(skills) if skills else '(none)'}",
+        "",
+    ]
+    out.write_text("\n".join(header) + composed, encoding="utf-8")
+
+    input_tokens = estimate_tokens(composed)
+    output_ratio = float(get_model_pricing(meta["model"], pricing).get("output_ratio", 0.35))
+    output_tokens = max(1, int(input_tokens * output_ratio))
+    cost_usd = compute_cost_usd(meta["model"], input_tokens, output_tokens, pricing)
+    track_usage(
+        state,
+        model=meta["model"],
+        agent=meta["agent"],
+        subagent=meta["subagent"],
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost_usd=cost_usd,
+    )
+    state["last_prompt"] = str(out)
+    state["last_action"] = f"Chat composed prompt for {step['stage']}"
+    state["active_agent"] = f"{step['stage']} → {meta['agent']}/{meta['subagent'] or '-'}"
+    print_notice(f"Prompt generado: {out}", "success")
+
+
+def handle_chat_natural_language(message, state):
+    text = message.lower()
+    if any(x in text for x in ["agentes", "agente", "models", "modelos"]):
+        list_agents(state)
+        return True
+    if "precio" in text or "costo" in text or "token" in text:
+        show_token_cost_dashboard(state)
+        return True
+    if "ayuda" in text or "help" in text:
+        show_help_center(state)
+        return True
+    if "dry" in text:
+        run_pipeline(state["project"], state, dry_run=True)
+        return True
+    if "pipeline" in text or "run" in text or "ejecut" in text:
+        run_pipeline(state["project"], state, dry_run=False)
+        return True
+    if "mirror" in text or "duplic" in text:
+        current = state.setdefault("ui", {}).get("duplicate_screen", False)
+        state["ui"]["duplicate_screen"] = not current
+        state["last_action"] = f"Duplicate screen mode {'enabled' if not current else 'disabled'}"
+        print_notice(state["last_action"], "success")
+        return True
+    print_notice("No entendí esa petición. Usa /help para ver comandos.", "warn")
+    return False
+
+
+def chat_assistant(state):
+    clear_screen()
+    render_header(state, subtitle="chat assistant")
+    box(
+        "AgentForge Chat",
+        [
+            "Escribí en lenguaje natural o usá comandos con '/'.",
+            *chat_help_lines(),
+            "",
+            "Ejemplos:",
+            "- 'mostrame los agentes'",
+            "- 'corre dry run'",
+            "- '/compose implementation'",
+        ],
+        accent=ANSI.BRIGHT_GREEN,
+    )
+
+    while True:
+        raw = input(f"\n{style('💬', ANSI.BRIGHT_CYAN, ANSI.BOLD)} Chat> ").strip()
+        if not raw:
+            continue
+        command, args = parse_chat_command(raw)
+        if command in {"exit", "menu"}:
+            state["last_action"] = "Exited chat assistant"
+            return
+        if command == "help":
+            box("Chat commands", chat_help_lines(), accent=ANSI.BRIGHT_BLUE)
+            continue
+        if command == "status":
+            render_footer(state)
+            continue
+        if command == "agents":
+            list_agents(state)
+            continue
+        if command == "run":
+            mode = args[0].lower() if args else "dry"
+            run_pipeline(state["project"], state, dry_run=(mode != "real"))
+            continue
+        if command == "compose":
+            if not args:
+                print_notice("Uso: /compose <stage>", "warn")
+                continue
+            compose_stage_prompt_by_name(state["project"], state, " ".join(args))
+            continue
+        if command == "pricing":
+            manage_model_pricing(state)
+            continue
+        if command == "catalog":
+            manage_agent_catalog(state)
+            sync_pipeline_state(state, preserve_status=True)
+            continue
+        if command == "mirror":
+            if args and args[0].lower() in {"on", "off"}:
+                state.setdefault("ui", {})["duplicate_screen"] = args[0].lower() == "on"
+            else:
+                current = state.setdefault("ui", {}).get("duplicate_screen", False)
+                state["ui"]["duplicate_screen"] = not current
+            state["last_action"] = f"Duplicate screen mode {'enabled' if state['ui']['duplicate_screen'] else 'disabled'}"
+            print_notice(state["last_action"], "success")
+            continue
+        if command == "project":
+            if not args:
+                print_notice("Uso: /project <path>", "warn")
+                continue
+            new_project = str(Path(" ".join(args)).expanduser().resolve())
+            state["project"] = new_project
+            sync_pipeline_state(state)
+            state["last_action"] = f"Project changed to {new_project}"
+            print_notice(state["last_action"], "success")
+            continue
+
+        if command and raw.startswith("/"):
+            print_notice("Comando no reconocido. Usa /help", "warn")
+            continue
+
+        handle_chat_natural_language(raw, state)
+
+
 def main_menu(project):
     state = build_state(project)
     sync_pipeline_state(state)
@@ -1160,6 +1349,8 @@ def main_menu(project):
             state["last_action"] = f"Duplicate screen mode {'enabled' if not current else 'disabled'}"
             print_notice(state["last_action"], "success")
             wait_for_enter()
+        elif option == "19":
+            chat_assistant(state)
         elif option == "0":
             clear_screen()
             print(style(f"{APP_NAME} signing off. Bye.", ANSI.BOLD, ANSI.BRIGHT_MAGENTA))

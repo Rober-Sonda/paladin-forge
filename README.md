@@ -44,6 +44,23 @@ Desde la raíz del repo:
 - `16` Agent catalog manager
 - `17` Console code editor
 - `18` Duplicate screen mode
+- `19` Chat assistant (modo conversacional)
+
+### Modo Chat (nuevo)
+Desde la consola, abre `19` y hablá con AgentForge en lenguaje natural.
+
+Comandos útiles en chat:
+- `/help`
+- `/status`
+- `/agents`
+- `/run dry`
+- `/run real`
+- `/compose <stage>`
+- `/pricing`
+- `/catalog`
+- `/mirror on|off`
+- `/project <path>`
+- `/menu` o `/exit`
 
 ## Console walkthrough (capturas)
 
