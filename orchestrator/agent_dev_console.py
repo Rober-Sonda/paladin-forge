@@ -13,6 +13,7 @@ ORCH = BASE / "orchestrator" / "agent_team.py"
 CATALOG = BASE / "orchestrator" / "agent_catalog.json"
 RUNNER = BASE / "scripts" / "agent-run.sh"
 CONFIG = ".agent-team.json"
+MODEL_PRICING_FILE = BASE / "config" / "model_pricing.json"
 APP_NAME = "AgentForge"
 APP_SUBTITLE = "Epic multi-agent terminal cockpit"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -69,6 +70,10 @@ MENU_ITEMS = [
     ("10", "View git diff", "Inspect current diff"),
     ("11", "Preview edited code", "Quick file-focused diff view"),
     ("12", "Link VS Code tasks", "Create optional project tasks"),
+    ("13", "Help center", "Guided usage and troubleshooting"),
+    ("14", "Token & cost dashboard", "Model usage, cost and estimates"),
+    ("15", "Model pricing settings", "Configure USD/token estimations"),
+    ("16", "Agent catalog manager", "Create and customize team agents"),
     ("0", "Exit", "Leave the cockpit"),
 ]
 
@@ -95,7 +100,86 @@ def load_json(path):
 
 
 def save_json(path, data):
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def estimate_tokens(text):
+    normalized = str(text or "")
+    return max(1, (len(normalized) + 3) // 4)
+
+
+def ensure_model_pricing(catalog):
+    if MODEL_PRICING_FILE.exists():
+        pricing = load_json(MODEL_PRICING_FILE)
+    else:
+        pricing = {"models": {}}
+
+    pricing.setdefault("models", {})
+    for _, meta in catalog.items():
+        model = meta.get("model", "gpt-5.3-codex")
+        pricing["models"].setdefault(
+            model,
+            {
+                "input_per_million_usd": 0.0,
+                "output_per_million_usd": 0.0,
+                "output_ratio": 0.35,
+            },
+        )
+        for _, submeta in meta.get("subagents", {}).items():
+            submodel = submeta.get("model", model)
+            pricing["models"].setdefault(
+                submodel,
+                {
+                    "input_per_million_usd": 0.0,
+                    "output_per_million_usd": 0.0,
+                    "output_ratio": 0.35,
+                },
+            )
+    save_json(MODEL_PRICING_FILE, pricing)
+    return pricing
+
+
+def get_model_pricing(model, pricing):
+    return pricing.get("models", {}).get(
+        model,
+        {
+            "input_per_million_usd": 0.0,
+            "output_per_million_usd": 0.0,
+            "output_ratio": 0.35,
+        },
+    )
+
+
+def compute_cost_usd(model, input_tokens, output_tokens, pricing):
+    model_pricing = get_model_pricing(model, pricing)
+    in_rate = float(model_pricing.get("input_per_million_usd", 0.0))
+    out_rate = float(model_pricing.get("output_per_million_usd", 0.0))
+    return (input_tokens / 1_000_000.0) * in_rate + (output_tokens / 1_000_000.0) * out_rate
+
+
+def track_usage(state, *, model, agent, subagent, input_tokens, output_tokens, cost_usd):
+    usage = state["usage"]
+    usage["session_input_tokens"] += input_tokens
+    usage["session_output_tokens"] += output_tokens
+    usage["session_cost_usd"] += cost_usd
+
+    model_bucket = usage["by_model"].setdefault(
+        model,
+        {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
+    )
+    model_bucket["input_tokens"] += input_tokens
+    model_bucket["output_tokens"] += output_tokens
+    model_bucket["cost_usd"] += cost_usd
+
+    agent_key = f"{agent}/{subagent or '-'}"
+    agent_bucket = usage["by_agent"].setdefault(
+        agent_key,
+        {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "model": model},
+    )
+    agent_bucket["input_tokens"] += input_tokens
+    agent_bucket["output_tokens"] += output_tokens
+    agent_bucket["cost_usd"] += cost_usd
 
 
 def dedup(seq):
@@ -218,6 +302,13 @@ def build_state(project):
         "active_agent": None,
         "last_action": "Console ready",
         "last_prompt": None,
+        "usage": {
+            "session_input_tokens": 0,
+            "session_output_tokens": 0,
+            "session_cost_usd": 0.0,
+            "by_model": {},
+            "by_agent": {},
+        },
     }
 
 
@@ -291,6 +382,17 @@ def render_footer(state):
         lines.append(f"{style('Active handoff', ANSI.BOLD, ANSI.BRIGHT_YELLOW)} · {state['active_agent']}")
     if state.get("last_prompt"):
         lines.append(f"{style('Latest prompt', ANSI.BOLD, ANSI.BRIGHT_GREEN)} · {state['last_prompt']}")
+    done = len([item for item in state.get("pipeline", []) if item.get("status") == "done"])
+    running = len([item for item in state.get("pipeline", []) if item.get("status") == "running"])
+    failed = len([item for item in state.get("pipeline", []) if item.get("status") == "failed"])
+    pending = len([item for item in state.get("pipeline", []) if item.get("status") == "pending"])
+    lines.append(
+        f"{style('Pipeline status', ANSI.BOLD, ANSI.BRIGHT_WHITE)} · done={done} running={running} pending={pending} failed={failed}"
+    )
+    usage = state.get("usage", {})
+    lines.append(
+        f"{style('Token usage', ANSI.BOLD, ANSI.BRIGHT_WHITE)} · in={usage.get('session_input_tokens', 0)} out={usage.get('session_output_tokens', 0)} cost≈${usage.get('session_cost_usd', 0.0):.6f}"
+    )
     box("Mission Telemetry", lines, accent=ANSI.BRIGHT_BLUE)
 
 
@@ -498,6 +600,7 @@ def compose_subagent_prompt(project, state):
         return
 
     catalog = load_json(CATALOG)
+    pricing = ensure_model_pricing(catalog)
     meta = resolve_agent(catalog, step["agent"], step.get("subagent"))
     skills = dedup(meta["skills"] + step.get("skills", []))
     out = BASE / "logs" / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{step['stage']}-manual.prompt.md"
@@ -512,6 +615,19 @@ def compose_subagent_prompt(project, state):
         "",
     ]
     out.write_text("\n".join(header) + composed, encoding="utf-8")
+    input_tokens = estimate_tokens(composed)
+    output_ratio = float(get_model_pricing(meta["model"], pricing).get("output_ratio", 0.35))
+    output_tokens = max(1, int(input_tokens * output_ratio))
+    cost_usd = compute_cost_usd(meta["model"], input_tokens, output_tokens, pricing)
+    track_usage(
+        state,
+        model=meta["model"],
+        agent=meta["agent"],
+        subagent=meta["subagent"],
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost_usd=cost_usd,
+    )
     state["last_prompt"] = str(out)
     state["last_action"] = f"Prompt composed for {step['stage']}"
     state["active_agent"] = f"{step['stage']} → {meta['agent']}/{meta['subagent'] or '-'}"
@@ -522,6 +638,7 @@ def run_pipeline(project, state, dry_run=False):
     cfg_path = ensure_project_config(project)
     config = load_json(cfg_path)
     catalog = load_json(CATALOG)
+    pricing = ensure_model_pricing(catalog)
     pipeline = [step for step in config.get("pipeline", []) if step.get("enabled", True)]
     if not pipeline:
         print_notice("No hay stages habilitados.", "warn")
@@ -584,7 +701,21 @@ def run_pipeline(project, state, dry_run=False):
             encoding="utf-8",
         )
         state["last_prompt"] = str(prompt_file)
+        input_tokens = estimate_tokens(composed)
+        output_ratio = float(get_model_pricing(meta["model"], pricing).get("output_ratio", 0.35))
+        output_tokens = max(1, int(input_tokens * output_ratio))
+        cost_usd = compute_cost_usd(meta["model"], input_tokens, output_tokens, pricing)
+        track_usage(
+            state,
+            model=meta["model"],
+            agent=agent,
+            subagent=subagent,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost_usd,
+        )
         print_notice(f"Prompt stage guardado: {prompt_file}", "success")
+        print_notice(f"Estimated tokens in/out: {input_tokens}/{output_tokens} | cost≈${cost_usd:.6f}", "info")
 
         for command in commands:
             print(style(f"$ {command}", ANSI.BRIGHT_YELLOW))
@@ -635,6 +766,217 @@ def list_agents(state):
         for sub_name, sub_meta in agent_meta.get("subagents", {}).items():
             lines.append(f"    ↳ {sub_name} | model={sub_meta.get('model', agent_meta.get('model', 'n/a'))}")
     box("Team Roster", lines, accent=ANSI.BRIGHT_MAGENTA)
+
+
+def show_help_center(state):
+    clear_screen()
+    render_header(state, subtitle="help center")
+    lines = [
+        style("Quick workflow", ANSI.BOLD, ANSI.BRIGHT_WHITE),
+        "1) Init config -> option 2",
+        "2) Reassign stage agents -> option 4",
+        "3) Tune skills -> option 5",
+        "4) Dry-run pipeline -> option 7",
+        "5) Real execution -> option 8",
+        "",
+        style("Telemetry indicators", ANSI.BOLD, ANSI.BRIGHT_WHITE),
+        "◌ pending | ◉ running | ✓ done | ↷ skipped | ✖ failed",
+        "Delegation Bus shows current stage ownership in real time.",
+        "Token usage and estimated costs are session-based in footer/dashboard.",
+        "",
+        style("Troubleshooting", ANSI.BOLD, ANSI.BRIGHT_WHITE),
+        "- If stage fails: check command output and fix project command/tooling.",
+        "- If cost stays 0: set model prices in option 15.",
+        "- If agent missing: create/update it in option 16.",
+    ]
+    box("Operator Guide", lines, accent=ANSI.BRIGHT_GREEN)
+
+
+def show_token_cost_dashboard(state):
+    clear_screen()
+    render_header(state, subtitle="token and cost dashboard")
+    usage = state.get("usage", {})
+    catalog = load_json(CATALOG)
+    pricing = ensure_model_pricing(catalog)
+
+    summary = [
+        f"Session input tokens · {usage.get('session_input_tokens', 0)}",
+        f"Session output tokens · {usage.get('session_output_tokens', 0)}",
+        f"Estimated session cost (USD) · ${usage.get('session_cost_usd', 0.0):.6f}",
+        "",
+        style("Cost model", ANSI.BOLD, ANSI.BRIGHT_WHITE) + " · estimates based on composed prompts",
+    ]
+    box("Session totals", summary, accent=ANSI.BRIGHT_CYAN)
+
+    model_lines = []
+    for model, data in sorted(usage.get("by_model", {}).items()):
+        p = get_model_pricing(model, pricing)
+        model_lines.append(
+            f"{model} | in={data['input_tokens']} out={data['output_tokens']} cost≈${data['cost_usd']:.6f} | rates in/out=${p.get('input_per_million_usd', 0.0)}/{p.get('output_per_million_usd', 0.0)} per 1M"
+        )
+    if not model_lines:
+        model_lines = ["No model usage in this session yet."]
+    box("Usage by model", model_lines, accent=ANSI.BRIGHT_MAGENTA)
+
+    agent_lines = []
+    for agent_key, data in sorted(usage.get("by_agent", {}).items()):
+        agent_lines.append(
+            f"{agent_key} | model={data.get('model', 'n/a')} | in={data['input_tokens']} out={data['output_tokens']} cost≈${data['cost_usd']:.6f}"
+        )
+    if not agent_lines:
+        agent_lines = ["No agent usage in this session yet."]
+    box("Usage by agent", agent_lines, accent=ANSI.BRIGHT_YELLOW)
+
+
+def manage_model_pricing(state):
+    clear_screen()
+    render_header(state, subtitle="model pricing settings")
+    catalog = load_json(CATALOG)
+    pricing = ensure_model_pricing(catalog)
+    models = sorted(pricing.get("models", {}).keys())
+    if not models:
+        print_notice("No hay modelos detectados aún.", "warn")
+        return
+
+    lines = []
+    for i, model in enumerate(models, 1):
+        data = pricing["models"][model]
+        lines.append(
+            f"{i}. {model} | input_per_1M=${float(data.get('input_per_million_usd', 0.0)):.4f} | output_per_1M=${float(data.get('output_per_million_usd', 0.0)):.4f} | output_ratio={float(data.get('output_ratio', 0.35)):.2f}"
+        )
+    box("Editable model rates", lines, accent=ANSI.BRIGHT_BLUE)
+
+    sel = input_default("Elegí modelo por número", "1")
+    try:
+        model = models[int(sel) - 1]
+    except Exception:
+        print_notice("Selección inválida", "error")
+        return
+
+    cfg = pricing["models"][model]
+    in_rate = input_default("Input USD por 1M tokens", str(cfg.get("input_per_million_usd", 0.0)))
+    out_rate = input_default("Output USD por 1M tokens", str(cfg.get("output_per_million_usd", 0.0)))
+    out_ratio = input_default("Output ratio estimado (0..2)", str(cfg.get("output_ratio", 0.35)))
+    try:
+        cfg["input_per_million_usd"] = float(in_rate)
+        cfg["output_per_million_usd"] = float(out_rate)
+        cfg["output_ratio"] = max(0.0, min(2.0, float(out_ratio)))
+    except ValueError:
+        print_notice("Valores inválidos", "error")
+        return
+
+    save_json(MODEL_PRICING_FILE, pricing)
+    state["last_action"] = f"Pricing updated for model {model}"
+    print_notice("Pricing guardado.", "success")
+
+
+def manage_agent_catalog(state):
+    catalog = load_json(CATALOG)
+    while True:
+        clear_screen()
+        render_header(state, subtitle="agent catalog manager")
+        lines = [
+            "1) Create new agent",
+            "2) Edit existing agent",
+            "3) Add or update subagent",
+            "4) Remove subagent",
+            "5) Remove agent",
+            "6) Back",
+            "",
+            style("Current agents", ANSI.BOLD, ANSI.BRIGHT_WHITE),
+        ]
+        lines.extend([f"- {name}" for name in sorted(catalog.keys())] or ["- (none)"])
+        box("Catalog operations", lines, accent=ANSI.BRIGHT_CYAN)
+
+        choice = input_default("Choose action", "6")
+        if choice == "1":
+            agent = input(f"{style('➜', ANSI.BRIGHT_MAGENTA, ANSI.BOLD)} Agent name: ").strip()
+            if not agent:
+                print_notice("Nombre inválido", "error")
+                wait_for_enter()
+                continue
+            if agent in catalog:
+                print_notice("Ese agente ya existe", "warn")
+                wait_for_enter()
+                continue
+            model = input_default("Default model", "gpt-5.3-codex")
+            prompt = input_default("Prompt base", "migrator")
+            skills = input_default("Skills (coma separada)", "")
+            catalog[agent] = {
+                "model": model,
+                "prompt": prompt,
+                "skills": [s.strip() for s in skills.split(",") if s.strip()],
+                "subagents": {},
+            }
+            save_json(CATALOG, catalog)
+            ensure_model_pricing(catalog)
+            state["last_action"] = f"Agent created: {agent}"
+            print_notice("Agente creado.", "success")
+            wait_for_enter()
+        elif choice == "2":
+            agent = input(f"{style('➜', ANSI.BRIGHT_MAGENTA, ANSI.BOLD)} Agent to edit: ").strip()
+            if agent not in catalog:
+                print_notice("Agente no existe", "error")
+                wait_for_enter()
+                continue
+            entry = catalog[agent]
+            entry["model"] = input_default("Model", entry.get("model", "gpt-5.3-codex"))
+            entry["prompt"] = input_default("Prompt", entry.get("prompt", "migrator"))
+            current_skills = ",".join(entry.get("skills", []))
+            skills = input_default("Skills (coma separada)", current_skills)
+            entry["skills"] = [s.strip() for s in skills.split(",") if s.strip()]
+            save_json(CATALOG, catalog)
+            ensure_model_pricing(catalog)
+            state["last_action"] = f"Agent updated: {agent}"
+            print_notice("Agente actualizado.", "success")
+            wait_for_enter()
+        elif choice == "3":
+            agent = input(f"{style('➜', ANSI.BRIGHT_MAGENTA, ANSI.BOLD)} Parent agent: ").strip()
+            if agent not in catalog:
+                print_notice("Agente no existe", "error")
+                wait_for_enter()
+                continue
+            sub = input(f"{style('➜', ANSI.BRIGHT_MAGENTA, ANSI.BOLD)} Subagent name: ").strip()
+            if not sub:
+                print_notice("Nombre inválido", "error")
+                wait_for_enter()
+                continue
+            subs = catalog[agent].setdefault("subagents", {})
+            current = subs.get(sub, {})
+            model = input_default("Model", current.get("model", catalog[agent].get("model", "gpt-5.3-codex")))
+            skills = input_default("Skills (coma separada)", ",".join(current.get("skills", [])))
+            subs[sub] = {"model": model, "skills": [s.strip() for s in skills.split(",") if s.strip()]}
+            save_json(CATALOG, catalog)
+            ensure_model_pricing(catalog)
+            state["last_action"] = f"Subagent upsert: {agent}/{sub}"
+            print_notice("Subagente guardado.", "success")
+            wait_for_enter()
+        elif choice == "4":
+            agent = input(f"{style('➜', ANSI.BRIGHT_MAGENTA, ANSI.BOLD)} Parent agent: ").strip()
+            sub = input(f"{style('➜', ANSI.BRIGHT_MAGENTA, ANSI.BOLD)} Subagent to remove: ").strip()
+            if agent in catalog and sub in catalog.get(agent, {}).get("subagents", {}):
+                del catalog[agent]["subagents"][sub]
+                save_json(CATALOG, catalog)
+                state["last_action"] = f"Subagent removed: {agent}/{sub}"
+                print_notice("Subagente eliminado.", "success")
+            else:
+                print_notice("No existe ese subagente", "error")
+            wait_for_enter()
+        elif choice == "5":
+            agent = input(f"{style('➜', ANSI.BRIGHT_MAGENTA, ANSI.BOLD)} Agent to remove: ").strip()
+            if agent in catalog:
+                del catalog[agent]
+                save_json(CATALOG, catalog)
+                state["last_action"] = f"Agent removed: {agent}"
+                print_notice("Agente eliminado.", "success")
+            else:
+                print_notice("No existe ese agente", "error")
+            wait_for_enter()
+        elif choice == "6":
+            break
+        else:
+            print_notice("Opción inválida", "error")
+            wait_for_enter()
 
 
 def open_file_preview(project, state):
@@ -708,6 +1050,18 @@ def main_menu(project):
         elif option == "12":
             vscode_link(state["project"], state)
             wait_for_enter()
+        elif option == "13":
+            show_help_center(state)
+            wait_for_enter()
+        elif option == "14":
+            show_token_cost_dashboard(state)
+            wait_for_enter()
+        elif option == "15":
+            manage_model_pricing(state)
+            wait_for_enter()
+        elif option == "16":
+            manage_agent_catalog(state)
+            sync_pipeline_state(state, preserve_status=True)
         elif option == "0":
             clear_screen()
             print(style(f"{APP_NAME} signing off. Bye.", ANSI.BOLD, ANSI.BRIGHT_MAGENTA))

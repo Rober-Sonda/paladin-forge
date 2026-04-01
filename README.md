@@ -13,6 +13,11 @@ AgentForge combina:
 - UI de terminal con paneles y colores
 - barra inferior `Delegation Bus` con estado por agente
 - `Active handoff` para ver la delegación viva durante el pipeline
+- indicadores de progreso por pipeline (`done/running/pending/failed`)
+- centro de ayuda integrado en consola (Help Center)
+- dashboard de tokens y costo estimado por sesión/modelo/agente
+- configuración editable de pricing por modelo (`USD por 1M` + ratio output)
+- gestor de catálogo para crear/editar agentes y subagentes
 - prompts versionables por rol y skills
 - instalación simple sin dependencias externas pesadas
 
@@ -29,6 +34,12 @@ Desde la raíz del repo:
 
 ### 3. Abrir consola
 - `agentforge-console --project .`
+
+### 3.1 Funciones avanzadas en consola
+- `13` Help center
+- `14` Token & cost dashboard
+- `15` Model pricing settings
+- `16` Agent catalog manager
 
 ### 4. Inicializar un proyecto
 - `agentforge init . --template full-delivery`
@@ -52,6 +63,11 @@ Desde la raíz del repo:
 - `agentforge run <project> --dry-run`
 - `agentforge vscode-link <project>`
 - `agentforge-console --project <project>`
+
+## Observabilidad y costos
+- Los costos son estimados en base a prompts compuestos.
+- Tokens estimados con aproximación por longitud de texto.
+- Para costos reales, configura tus tarifas en consola (opción `15`).
 
 ## Casos de uso
 - Migraciones Flutter y UI refactors
