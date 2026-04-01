@@ -1,0 +1,16 @@
+{
+  "name": "full-delivery-team",
+  "description": "Discovery to post-deploy pipeline",
+  "pipeline": [
+    {"stage": "discovery", "enabled": true, "agent": "planner", "subagent": "requirements-analyst", "commands": []},
+    {"stage": "architecture", "enabled": true, "agent": "planner", "subagent": "solution-architect", "commands": []},
+    {"stage": "implementation", "enabled": true, "agent": "migrator", "subagent": "ui-refactor", "commands": []},
+    {"stage": "performance", "enabled": true, "agent": "migrator", "subagent": "perf-optimizer", "commands": []},
+    {"stage": "quality", "enabled": true, "agent": "validator", "subagent": "lint-checker", "commands": ["echo 'Add: flutter analyze'"]},
+    {"stage": "qa", "enabled": true, "agent": "validator", "subagent": "qa-guard", "commands": ["echo 'Add: flutter test'"]},
+    {"stage": "security", "enabled": true, "agent": "validator", "subagent": "security-review", "commands": []},
+    {"stage": "documentation", "enabled": true, "agent": "documentation", "subagent": "readme-maintainer", "commands": []},
+    {"stage": "release", "enabled": false, "agent": "release", "subagent": "deploy-engineer", "commands": ["echo 'Add: deploy command (azd up / firebase deploy / etc.)'"]},
+    {"stage": "post-deploy", "enabled": false, "agent": "release", "subagent": "post-deploy-monitor", "commands": ["echo 'Add: health checks / smoke tests'"]}
+  ]
+}

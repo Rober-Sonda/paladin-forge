@@ -1,0 +1,51 @@
+{
+  "planner": {
+    "model": "gpt-5.3-codex",
+    "prompt": "planner",
+    "skills": [],
+    "subagents": {
+      "requirements-analyst": { "model": "gpt-5.3-mini", "skills": ["requirements-splitting"] },
+      "solution-architect": { "model": "gpt-5.3-codex", "skills": ["risk-assessment"] },
+      "task-breakdown": { "model": "gpt-5.3-mini", "skills": ["planning-breakdown"] }
+    }
+  },
+  "migrator": {
+    "model": "gpt-5.3-codex",
+    "prompt": "migrator",
+    "skills": ["flutter-design-system"],
+    "subagents": {
+      "ui-refactor": { "model": "gpt-5.3-codex", "skills": ["flutter-design-system", "diff-minimization"] },
+      "backend-refactor": { "model": "gpt-5.3-mini", "skills": ["api-safety"] },
+      "perf-optimizer": { "model": "gpt-5.3-codex", "skills": ["performance-hotspots"] }
+    }
+  },
+  "validator": {
+    "model": "gpt-5.3-codex",
+    "prompt": "validator",
+    "skills": ["tests-min"],
+    "subagents": {
+      "lint-checker": { "model": "gpt-5.3-mini", "skills": ["lint-strict"] },
+      "qa-guard": { "model": "gpt-5.3-codex", "skills": ["regression-guard", "tests-min"] },
+      "security-review": { "model": "gpt-5.3-codex", "skills": ["secure-coding-checklist"] }
+    }
+  },
+  "documentation": {
+    "model": "gpt-5.3-codex",
+    "prompt": "validator",
+    "skills": ["docs-quality"],
+    "subagents": {
+      "readme-maintainer": { "model": "gpt-5.3-mini", "skills": ["readme-update"] },
+      "api-doc-writer": { "model": "gpt-5.3-codex", "skills": ["api-docs"] },
+      "changelog-writer": { "model": "gpt-5.3-mini", "skills": ["changelog-automation"] }
+    }
+  },
+  "release": {
+    "model": "gpt-5.3-codex",
+    "prompt": "validator",
+    "skills": ["release-checklist"],
+    "subagents": {
+      "deploy-engineer": { "model": "gpt-5.3-codex", "skills": ["release-checklist", "deploy-safety"] },
+      "post-deploy-monitor": { "model": "gpt-5.3-mini", "skills": ["post-deploy-check"] }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "standard-team",
+  "description": "Standard local pipeline",
+  "pipeline": [
+    {"stage": "plan", "enabled": true, "agent": "planner", "subagent": "requirements-analyst", "commands": []},
+    {"stage": "implement", "enabled": true, "agent": "migrator", "subagent": "ui-refactor", "commands": []},
+    {"stage": "validate", "enabled": true, "agent": "validator", "subagent": "qa-guard", "commands": []},
+    {"stage": "deploy", "enabled": false, "agent": "release", "subagent": "deploy-engineer", "commands": ["echo 'Configure deploy command'"]}
+  ]
+}
