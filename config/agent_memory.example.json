@@ -1,30 +1,30 @@
 {
-  "agents": {
-    "planner": {
-      "skills_memory": [
-        "requirements-splitting"
-      ],
-      "behaviors": [
-        "always produce clear acceptance criteria"
-      ],
-      "notes": [
-        "prioritize constraints before proposing architecture"
-      ],
-      "updated_at": "2026-04-01T00:00:00"
-    },
-    "migrator/ui-refactor": {
-      "skills_memory": [
-        "flutter-design-system",
-        "diff-minimization"
-      ],
-      "behaviors": [
-        "prefer smallest safe change",
-        "preserve public APIs"
-      ],
-      "notes": [
-        "focus on design token consistency"
-      ],
-      "updated_at": "2026-04-01T00:00:00"
+    "agents": {
+        "planner": {
+            "skills_memory": [
+                "requirements-splitting"
+            ],
+            "behaviors": [
+                "always produce clear acceptance criteria"
+            ],
+            "notes": [
+                "prioritize constraints before proposing architecture"
+            ],
+            "updated_at": "2026-04-01T00:00:00"
+        },
+        "migrator/ui-refactor": {
+            "skills_memory": [
+                "flutter-design-system",
+                "diff-minimization"
+            ],
+            "behaviors": [
+                "prefer smallest safe change",
+                "preserve public APIs"
+            ],
+            "notes": [
+                "focus on design token consistency"
+            ],
+            "updated_at": "2026-04-01T00:00:00"
+        }
     }
-  }
 }
