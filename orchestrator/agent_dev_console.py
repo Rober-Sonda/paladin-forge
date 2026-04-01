@@ -1381,6 +1381,91 @@ def find_stage_by_name(project, stage_name):
     return None
 
 
+def get_pipeline_steps(project):
+    cfg_path = Path(project) / CONFIG
+    if not cfg_path.exists():
+        return []
+    cfg = load_json(cfg_path)
+    return cfg.get("pipeline", [])
+
+
+def announce_delegation(state, stage, agent, subagent, reason):
+    label = f"{stage} → {agent}/{subagent or '-'}"
+    state["active_agent"] = label
+    state["last_action"] = f"Delegated by chat: {label}"
+    print_notice(f"Orchestrator delega: {label} | motivo: {reason}", "info")
+
+
+def route_stage_from_text(project, text):
+    steps = get_pipeline_steps(project)
+    lowered = text.lower()
+    for step in steps:
+        stage_name = step.get("stage", "")
+        if stage_name and stage_name.lower() in lowered:
+            return stage_name
+
+    if any(x in lowered for x in ["doc", "readme", "changelog"]):
+        return "documentation"
+    if any(x in lowered for x in ["secure", "security", "vulnerab"]):
+        return "security"
+    if any(x in lowered for x in ["test", "qa", "valid", "lint"]):
+        return "qa"
+    if any(x in lowered for x in ["perf", "optim", "rendim"]):
+        return "performance"
+    if any(x in lowered for x in ["implem", "refactor", "migr"]):
+        return "implementation"
+    if any(x in lowered for x in ["plan", "arquitect", "requirement"]):
+        return "discovery"
+    return None
+
+
+def orchestrator_delegate_request(message, state):
+    text = message.lower().strip()
+    project = state["project"]
+
+    if any(x in text for x in ["inicial", "init", "arranca", "preparar proyecto"]):
+        rc = run(f'python3 "{ORCH}" init "{project}" --template full-delivery --force')
+        if rc == 0:
+            sync_pipeline_state(state)
+            print_notice("Proyecto inicializado por orquestador.", "success")
+        return True
+
+    if any(x in text for x in ["corre todo", "ejecuta todo", "pipeline completo"]):
+        announce_delegation(state, "pipeline", "orchestrator", "auto", "ejecución completa")
+        run_pipeline(project, state, dry_run=False)
+        return True
+
+    if any(x in text for x in ["dry run", "simula", "prueba pipeline"]):
+        announce_delegation(state, "pipeline", "orchestrator", "auto", "simulación")
+        run_pipeline(project, state, dry_run=True)
+        return True
+
+    if any(x in text for x in ["memoria", "behavior", "comportamiento"]):
+        announce_delegation(state, "memory", "orchestrator", "memory-manager", "gestión de memoria")
+        manage_agent_memory(state)
+        return True
+
+    if any(x in text for x in ["editar código", "editar codigo", "crear archivo", "code workspace", "programa"]):
+        announce_delegation(state, "code", "orchestrator", "code-workspace", "edición de código")
+        project_code_workspace(state)
+        return True
+
+    if any(x in text for x in ["pricing", "precio", "costo"]):
+        announce_delegation(state, "pricing", "orchestrator", "pricing-manager", "costos y tarifas")
+        show_token_cost_dashboard(state)
+        return True
+
+    stage = route_stage_from_text(project, text)
+    if stage and any(x in text for x in ["prompt", "deleg", "haz", "genera", "trabaja", "stage"]):
+        step = find_stage_by_name(project, stage)
+        if step:
+            announce_delegation(state, stage, step.get("agent", "migrator"), step.get("subagent"), "solicitud natural")
+            compose_stage_prompt_by_name(project, state, stage)
+            return True
+
+    return False
+
+
 def compose_stage_prompt_by_name(project, state, stage_name):
     step = find_stage_by_name(project, stage_name)
     if not step:
@@ -1474,7 +1559,8 @@ def chat_assistant(state):
     box(
         "AgentForge Chat",
         [
-            "Escribí en lenguaje natural o usá comandos con '/'.",
+            "Escribí en lenguaje natural y el orquestador delega automáticamente.",
+            "Usa comandos con '/' solo si quieres control explícito.",
             *chat_help_lines(),
             "",
             "Ejemplos:",
@@ -1560,7 +1646,17 @@ def chat_assistant(state):
             print_notice("Comando no reconocido. Usa /help", "warn")
             continue
 
+        if orchestrator_delegate_request(raw, state):
+            continue
         handle_chat_natural_language(raw, state)
+
+
+def chat_mode(project):
+    state = build_state(project)
+    sync_pipeline_state(state)
+    chat_assistant(state)
+    clear_screen()
+    print(style(f"{APP_NAME} chat session closed.", ANSI.BOLD, ANSI.BRIGHT_MAGENTA))
 
 
 def main_menu(project):
@@ -1650,12 +1746,22 @@ def main_menu(project):
 
 def main():
     project = str(Path.cwd())
-    if len(sys.argv) > 1 and sys.argv[1] == "--project":
-        if len(sys.argv) < 3:
-            print("Uso: agentforge-console --project /ruta/proyecto")
+    args = sys.argv[1:]
+    force_menu = "--menu" in args
+    force_chat = "--chat" in args or not force_menu
+
+    if "--project" in args:
+        try:
+            idx = args.index("--project")
+            project = str(Path(args[idx + 1]).expanduser().resolve())
+        except Exception:
+            print("Uso: agentforge-console [--chat|--menu] --project /ruta/proyecto")
             sys.exit(1)
-        project = str(Path(sys.argv[2]).expanduser().resolve())
-    main_menu(project)
+
+    if force_chat:
+        chat_mode(project)
+    else:
+        main_menu(project)
 
 
 if __name__ == "__main__":

@@ -37,6 +37,9 @@ Desde la raíz del repo:
 ### 3. Abrir consola
 - `agentforge-console --project .`
 
+Por defecto abre en **modo chat-first** (sin menú numérico).
+- para forzar menú clásico: `agentforge-console --menu --project .`
+
 ### 3.1 Funciones avanzadas en consola
 - `13` Help center
 - `14` Token & cost dashboard
@@ -50,6 +53,10 @@ Desde la raíz del repo:
 
 ### Modo Chat (nuevo)
 Desde la consola, abre `19` y hablá con AgentForge en lenguaje natural.
+
+Ahora también puedes abrir directamente en chat al iniciar el comando:
+- `agentforge-console --chat --project .`
+- `agentforge-console --project .` (chat-first por defecto)
 
 Comandos útiles en chat:
 - `/help`
