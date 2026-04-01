@@ -45,6 +45,8 @@ Desde la raíz del repo:
 - `17` Console code editor
 - `18` Duplicate screen mode
 - `19` Chat assistant (modo conversacional)
+- `20` Agent memory manager (skills/comportamientos persistentes)
+- `21` Project code workspace (crear/mejorar código en proyecto)
 
 ### Modo Chat (nuevo)
 Desde la consola, abre `19` y hablá con AgentForge en lenguaje natural.
@@ -58,9 +60,26 @@ Comandos útiles en chat:
 - `/compose <stage>`
 - `/pricing`
 - `/catalog`
+- `/memory`
+- `/code`
 - `/mirror on|off`
 - `/project <path>`
 - `/menu` o `/exit`
+
+### Memoria por agente
+Cada agente y subagente tiene memoria persistente para:
+- `skills_memory`
+- `behaviors`
+- `notes`
+
+Esa memoria se inyecta automáticamente al componer prompts y ejecutar pipeline.
+
+### Desarrollo de código desde la herramienta
+Con `21` (o `/code`) puedes:
+- editar archivos existentes del proyecto
+- crear archivos nuevos desde cero
+- agregar snippets rápidos
+- generar un scaffold inicial básico
 
 ## Console walkthrough (capturas)
 

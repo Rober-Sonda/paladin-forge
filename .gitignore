@@ -1,6 +1,7 @@
 logs/
 sandboxes/
 config/model_pricing.json
+config/agent_memory.json
 __pycache__/
 *.pyc
 .DS_Store

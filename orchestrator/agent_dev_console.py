@@ -14,6 +14,7 @@ CATALOG = BASE / "orchestrator" / "agent_catalog.json"
 RUNNER = BASE / "scripts" / "agent-run.sh"
 CONFIG = ".agent-team.json"
 MODEL_PRICING_FILE = BASE / "config" / "model_pricing.json"
+AGENT_MEMORY_FILE = BASE / "config" / "agent_memory.json"
 APP_NAME = "AgentForge"
 APP_SUBTITLE = "Epic multi-agent terminal cockpit"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -77,6 +78,8 @@ MENU_ITEMS = [
     ("17", "Console code editor", "Edit config files in terminal editor"),
     ("18", "Duplicate screen mode", "Toggle mirrored command deck"),
     ("19", "Chat assistant", "Talk to AgentForge in natural language"),
+    ("20", "Agent memory manager", "Persist skills and behaviors per agent"),
+    ("21", "Project code workspace", "Create/edit project code from console"),
     ("0", "Exit", "Leave the cockpit"),
 ]
 
@@ -110,6 +113,58 @@ def save_json(path, data):
 def estimate_tokens(text):
     normalized = str(text or "")
     return max(1, (len(normalized) + 3) // 4)
+
+
+def memory_key(agent, subagent=None):
+    return f"{agent}/{subagent}" if subagent else agent
+
+
+def ensure_agent_memory(catalog):
+    if AGENT_MEMORY_FILE.exists():
+        memory = load_json(AGENT_MEMORY_FILE)
+    else:
+        memory = {"agents": {}}
+
+    memory.setdefault("agents", {})
+    now = datetime.now().isoformat(timespec="seconds")
+    for agent, meta in catalog.items():
+        key = memory_key(agent)
+        memory["agents"].setdefault(
+            key,
+            {"skills_memory": [], "behaviors": [], "notes": [], "updated_at": now},
+        )
+        for sub in meta.get("subagents", {}).keys():
+            skey = memory_key(agent, sub)
+            memory["agents"].setdefault(
+                skey,
+                {"skills_memory": [], "behaviors": [], "notes": [], "updated_at": now},
+            )
+    save_json(AGENT_MEMORY_FILE, memory)
+    return memory
+
+
+def get_memory_entry(memory, agent, subagent=None):
+    entry = memory.get("agents", {}).get(memory_key(agent, subagent), {})
+    return {
+        "skills_memory": list(entry.get("skills_memory", [])),
+        "behaviors": list(entry.get("behaviors", [])),
+        "notes": list(entry.get("notes", [])),
+    }
+
+
+def enrich_prompt_with_memory(composed, memory_entry):
+    behaviors = memory_entry.get("behaviors", [])
+    notes = memory_entry.get("notes", [])
+    if not behaviors and not notes:
+        return composed
+    section = ["", "## AGENT MEMORY CONTEXT"]
+    if behaviors:
+        section.append("### Behaviors")
+        section.extend([f"- {item}" for item in behaviors])
+    if notes:
+        section.append("### Notes")
+        section.extend([f"- {item}" for item in notes])
+    return composed + "\n" + "\n".join(section) + "\n"
 
 
 def ensure_model_pricing(catalog):
@@ -626,11 +681,13 @@ def compose_subagent_prompt(project, state):
         return
 
     catalog = load_json(CATALOG)
+    memory = ensure_agent_memory(catalog)
     pricing = ensure_model_pricing(catalog)
     meta = resolve_agent(catalog, step["agent"], step.get("subagent"))
-    skills = dedup(meta["skills"] + step.get("skills", []))
+    memory_entry = get_memory_entry(memory, meta["agent"], meta["subagent"])
+    skills = dedup(meta["skills"] + step.get("skills", []) + memory_entry.get("skills_memory", []))
     out = BASE / "logs" / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{step['stage']}-manual.prompt.md"
-    composed = compose_prompt(meta["prompt"], skills)
+    composed = enrich_prompt_with_memory(compose_prompt(meta["prompt"], skills), memory_entry)
     header = [
         "# ===== AGENT SUBTEAM PROMPT =====",
         f"# agent: {meta['agent']}",
@@ -664,6 +721,7 @@ def run_pipeline(project, state, dry_run=False):
     cfg_path = ensure_project_config(project)
     config = load_json(cfg_path)
     catalog = load_json(CATALOG)
+    memory = ensure_agent_memory(catalog)
     pricing = ensure_model_pricing(catalog)
     pipeline = [step for step in config.get("pipeline", []) if step.get("enabled", True)]
     if not pipeline:
@@ -685,7 +743,8 @@ def run_pipeline(project, state, dry_run=False):
         subagent = step.get("subagent")
         commands = step.get("commands", [])
         meta = resolve_agent(catalog, agent, subagent)
-        skills = dedup(meta["skills"] + step.get("skills", []))
+        memory_entry = get_memory_entry(memory, meta["agent"], meta["subagent"])
+        skills = dedup(meta["skills"] + step.get("skills", []) + memory_entry.get("skills_memory", []))
 
         for item in state["pipeline"]:
             if item["stage"] == stage:
@@ -709,7 +768,7 @@ def run_pipeline(project, state, dry_run=False):
         )
         render_footer(state)
 
-        composed = compose_prompt(meta["prompt"], skills)
+        composed = enrich_prompt_with_memory(compose_prompt(meta["prompt"], skills), memory_entry)
         prompt_file = logs_dir / f"{ts}-{stage}.prompt.md"
         prompt_file.write_text(
             "\n".join(
@@ -900,6 +959,7 @@ def manage_model_pricing(state):
 
 def manage_agent_catalog(state):
     catalog = load_json(CATALOG)
+    ensure_agent_memory(catalog)
     while True:
         clear_screen()
         render_header(state, subtitle="agent catalog manager")
@@ -938,6 +998,7 @@ def manage_agent_catalog(state):
             }
             save_json(CATALOG, catalog)
             ensure_model_pricing(catalog)
+            ensure_agent_memory(catalog)
             state["last_action"] = f"Agent created: {agent}"
             print_notice("Agente creado.", "success")
             wait_for_enter()
@@ -955,6 +1016,7 @@ def manage_agent_catalog(state):
             entry["skills"] = [s.strip() for s in skills.split(",") if s.strip()]
             save_json(CATALOG, catalog)
             ensure_model_pricing(catalog)
+            ensure_agent_memory(catalog)
             state["last_action"] = f"Agent updated: {agent}"
             print_notice("Agente actualizado.", "success")
             wait_for_enter()
@@ -976,6 +1038,7 @@ def manage_agent_catalog(state):
             subs[sub] = {"model": model, "skills": [s.strip() for s in skills.split(",") if s.strip()]}
             save_json(CATALOG, catalog)
             ensure_model_pricing(catalog)
+            ensure_agent_memory(catalog)
             state["last_action"] = f"Subagent upsert: {agent}/{sub}"
             print_notice("Subagente guardado.", "success")
             wait_for_enter()
@@ -985,6 +1048,7 @@ def manage_agent_catalog(state):
             if agent in catalog and sub in catalog.get(agent, {}).get("subagents", {}):
                 del catalog[agent]["subagents"][sub]
                 save_json(CATALOG, catalog)
+                ensure_agent_memory(catalog)
                 state["last_action"] = f"Subagent removed: {agent}/{sub}"
                 print_notice("Subagente eliminado.", "success")
             else:
@@ -995,6 +1059,7 @@ def manage_agent_catalog(state):
             if agent in catalog:
                 del catalog[agent]
                 save_json(CATALOG, catalog)
+                ensure_agent_memory(catalog)
                 state["last_action"] = f"Agent removed: {agent}"
                 print_notice("Agente eliminado.", "success")
             else:
@@ -1025,16 +1090,17 @@ def console_code_editor(state):
     files = [
         ("1", CATALOG),
         ("2", MODEL_PRICING_FILE),
-        ("3", project_path / CONFIG),
-        ("4", BASE / "README.md"),
+        ("3", AGENT_MEMORY_FILE),
+        ("4", project_path / CONFIG),
+        ("5", BASE / "README.md"),
     ]
     lines = [f"{key}. {path}" for key, path in files]
-    lines.append("5. Custom path")
+    lines.append("6. Custom path")
     box("Editable files", lines, accent=ANSI.BRIGHT_BLUE)
 
     choice = input_default("Choose file", "1")
     selected = None
-    if choice == "5":
+    if choice == "6":
         custom = input(f"{style('➜', ANSI.BRIGHT_MAGENTA, ANSI.BOLD)} File path: ").strip()
         if custom:
             selected = Path(custom).expanduser().resolve()
@@ -1064,9 +1130,190 @@ def console_code_editor(state):
         print_notice("Archivo actualizado.", "success")
         if selected == CATALOG:
             ensure_model_pricing(load_json(CATALOG))
+            ensure_agent_memory(load_json(CATALOG))
             sync_pipeline_state(state, preserve_status=True)
     else:
         print_notice("El editor cerró con error", "error")
+
+
+def manage_agent_memory(state):
+    catalog = load_json(CATALOG)
+    memory = ensure_agent_memory(catalog)
+    while True:
+        clear_screen()
+        render_header(state, subtitle="agent memory manager")
+        targets = []
+        for agent, meta in sorted(catalog.items()):
+            targets.append((agent, None, memory_key(agent)))
+            for sub in sorted(meta.get("subagents", {}).keys()):
+                targets.append((agent, sub, memory_key(agent, sub)))
+
+        lines = [
+            "1) Edit memory entry",
+            "2) Clear memory entry",
+            "3) Back",
+            "",
+            style("Targets", ANSI.BOLD, ANSI.BRIGHT_WHITE),
+        ]
+        lines.extend([f"- {key}" for _, _, key in targets] or ["- (none)"])
+        box("Memory operations", lines, accent=ANSI.BRIGHT_MAGENTA)
+
+        action = input_default("Choose action", "3")
+        if action == "3":
+            return
+        target_key = input_default("Target (agent o agent/subagent)", targets[0][2] if targets else "")
+        match = next((t for t in targets if t[2] == target_key), None)
+        if not match:
+            print_notice("Target inválido", "error")
+            wait_for_enter()
+            continue
+
+        agent, subagent, key = match
+        entry = memory.setdefault("agents", {}).setdefault(
+            key,
+            {"skills_memory": [], "behaviors": [], "notes": [], "updated_at": datetime.now().isoformat(timespec="seconds")},
+        )
+
+        if action == "2":
+            entry["skills_memory"] = []
+            entry["behaviors"] = []
+            entry["notes"] = []
+            entry["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            save_json(AGENT_MEMORY_FILE, memory)
+            state["last_action"] = f"Memory cleared for {key}"
+            print_notice(state["last_action"], "success")
+            wait_for_enter()
+            continue
+
+        if action != "1":
+            print_notice("Opción inválida", "error")
+            wait_for_enter()
+            continue
+
+        current_skills = ",".join(entry.get("skills_memory", []))
+        current_behaviors = ",".join(entry.get("behaviors", []))
+        current_notes = ",".join(entry.get("notes", []))
+
+        skills = input_default("Memory skills (coma separada)", current_skills)
+        behaviors = input_default("Behaviors (coma separada)", current_behaviors)
+        notes = input_default("Notes (coma separada)", current_notes)
+
+        entry["skills_memory"] = [s.strip() for s in skills.split(",") if s.strip()]
+        entry["behaviors"] = [s.strip() for s in behaviors.split(",") if s.strip()]
+        entry["notes"] = [s.strip() for s in notes.split(",") if s.strip()]
+        entry["updated_at"] = datetime.now().isoformat(timespec="seconds")
+
+        save_json(AGENT_MEMORY_FILE, memory)
+        state["last_action"] = f"Memory updated for {key}"
+        print_notice(state["last_action"], "success")
+        wait_for_enter()
+
+
+def project_code_workspace(state):
+    project = Path(state["project"])
+    project.mkdir(parents=True, exist_ok=True)
+    while True:
+        clear_screen()
+        render_header(state, subtitle="project code workspace")
+        box(
+            "Code workspace",
+            [
+                "1) Edit existing project file",
+                "2) Create new code file from scratch",
+                "3) Append snippet to file",
+                "4) Create starter files (example scaffold)",
+                "5) Back",
+                "",
+                f"Project · {project}",
+            ],
+            accent=ANSI.BRIGHT_GREEN,
+        )
+        choice = input_default("Choose action", "5")
+        if choice == "5":
+            return
+
+        if choice == "1":
+            path = input(f"{style('➜', ANSI.BRIGHT_MAGENTA, ANSI.BOLD)} Relative file path: ").strip()
+            if not path:
+                print_notice("Path inválido", "error")
+                wait_for_enter()
+                continue
+            target = (project / path).resolve()
+            if not str(target).startswith(str(project.resolve())):
+                print_notice("Path fuera del proyecto no permitido", "error")
+                wait_for_enter()
+                continue
+            if not target.exists():
+                print_notice("Archivo no existe", "warn")
+                wait_for_enter()
+                continue
+            editor = pick_terminal_editor()
+            if not editor:
+                print_notice("No hay editor disponible", "error")
+                wait_for_enter()
+                continue
+            subprocess.run(f'{editor} "{target}"', shell=True)
+            state["last_action"] = f"Edited project file: {target}"
+            print_notice(state["last_action"], "success")
+            wait_for_enter()
+            continue
+
+        if choice == "2":
+            path = input(f"{style('➜', ANSI.BRIGHT_MAGENTA, ANSI.BOLD)} New file path: ").strip()
+            if not path:
+                print_notice("Path inválido", "error")
+                wait_for_enter()
+                continue
+            target = (project / path).resolve()
+            if not str(target).startswith(str(project.resolve())):
+                print_notice("Path fuera del proyecto no permitido", "error")
+                wait_for_enter()
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not target.exists():
+                target.write_text("", encoding="utf-8")
+            editor = pick_terminal_editor()
+            if not editor:
+                print_notice("No hay editor disponible", "error")
+                wait_for_enter()
+                continue
+            subprocess.run(f'{editor} "{target}"', shell=True)
+            state["last_action"] = f"Created/edited file: {target}"
+            print_notice(state["last_action"], "success")
+            wait_for_enter()
+            continue
+
+        if choice == "3":
+            path = input(f"{style('➜', ANSI.BRIGHT_MAGENTA, ANSI.BOLD)} File path: ").strip()
+            target = (project / path).resolve()
+            if not path or not str(target).startswith(str(project.resolve())):
+                print_notice("Path inválido", "error")
+                wait_for_enter()
+                continue
+            snippet = input(f"{style('➜', ANSI.BRIGHT_MAGENTA, ANSI.BOLD)} Snippet line: ").rstrip()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("a", encoding="utf-8") as handle:
+                handle.write(snippet + "\n")
+            state["last_action"] = f"Snippet appended: {target}"
+            print_notice(state["last_action"], "success")
+            wait_for_enter()
+            continue
+
+        if choice == "4":
+            base_name = input_default("Starter name", "app")
+            py = project / f"{base_name}.py"
+            md = project / "README.md"
+            if not py.exists():
+                py.write_text("def main():\n    print(\"Hello from AgentForge starter\")\n\n\nif __name__ == \"__main__\":\n    main()\n", encoding="utf-8")
+            if not md.exists():
+                md.write_text(f"# {base_name}\n\nGenerated by AgentForge project code workspace.\n", encoding="utf-8")
+            state["last_action"] = f"Starter scaffold created in {project}"
+            print_notice(state["last_action"], "success")
+            wait_for_enter()
+            continue
+
+        print_notice("Opción inválida", "error")
+        wait_for_enter()
 
 
 def open_file_preview(project, state):
@@ -1102,6 +1349,8 @@ def chat_help_lines():
         "/compose <stage>             - componer prompt para un stage",
         "/pricing                     - abrir pricing de modelos",
         "/catalog                     - abrir gestor de agentes",
+        "/memory                      - abrir memoria por agente",
+        "/code                        - abrir workspace de código del proyecto",
         "/mirror on|off               - activar/desactivar pantalla duplicada",
         "/project <path>              - cambiar proyecto",
         "/menu                        - volver al menú",
@@ -1138,11 +1387,13 @@ def compose_stage_prompt_by_name(project, state, stage_name):
         return
 
     catalog = load_json(CATALOG)
+    memory = ensure_agent_memory(catalog)
     pricing = ensure_model_pricing(catalog)
     meta = resolve_agent(catalog, step["agent"], step.get("subagent"))
-    skills = dedup(meta["skills"] + step.get("skills", []))
+    memory_entry = get_memory_entry(memory, meta["agent"], meta["subagent"])
+    skills = dedup(meta["skills"] + step.get("skills", []) + memory_entry.get("skills_memory", []))
     out = BASE / "logs" / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{step['stage']}-chat.prompt.md"
-    composed = compose_prompt(meta["prompt"], skills)
+    composed = enrich_prompt_with_memory(compose_prompt(meta["prompt"], skills), memory_entry)
 
     header = [
         "# ===== AGENT SUBTEAM PROMPT =====",
@@ -1181,6 +1432,12 @@ def handle_chat_natural_language(message, state):
         return True
     if "precio" in text or "costo" in text or "token" in text:
         show_token_cost_dashboard(state)
+        return True
+    if "memoria" in text or "behavior" in text or "comport" in text:
+        manage_agent_memory(state)
+        return True
+    if "codigo" in text or "code" in text or "archivo" in text:
+        project_code_workspace(state)
         return True
     if "ayuda" in text or "help" in text:
         show_help_center(state)
@@ -1251,6 +1508,12 @@ def chat_assistant(state):
         if command == "catalog":
             manage_agent_catalog(state)
             sync_pipeline_state(state, preserve_status=True)
+            continue
+        if command == "memory":
+            manage_agent_memory(state)
+            continue
+        if command == "code":
+            project_code_workspace(state)
             continue
         if command == "mirror":
             if args and args[0].lower() in {"on", "off"}:
@@ -1351,6 +1614,10 @@ def main_menu(project):
             wait_for_enter()
         elif option == "19":
             chat_assistant(state)
+        elif option == "20":
+            manage_agent_memory(state)
+        elif option == "21":
+            project_code_workspace(state)
         elif option == "0":
             clear_screen()
             print(style(f"{APP_NAME} signing off. Bye.", ANSI.BOLD, ANSI.BRIGHT_MAGENTA))
