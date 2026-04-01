@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -371,6 +372,10 @@ def build_state(project):
         "ui": {
             "duplicate_screen": False,
         },
+        "mcp": {
+            "sessions": {},
+            "last_health_check_at": None,
+        },
     }
 
 
@@ -469,6 +474,27 @@ def render_footer(state):
     lines.append(
         f"{style('Token usage', ANSI.BOLD, ANSI.BRIGHT_WHITE)} · in={usage.get('session_input_tokens', 0)} out={usage.get('session_output_tokens', 0)} cost≈${usage.get('session_cost_usd', 0.0):.6f}"
     )
+    mcp_sessions = state.get("mcp", {}).get("sessions", {})
+    if mcp_sessions:
+        connected = len([1 for _, info in mcp_sessions.items() if info.get("status") == "connected"])
+        degraded = len([1 for _, info in mcp_sessions.items() if info.get("status") in {"unreachable", "failed"}])
+        retrying = len([1 for _, info in mcp_sessions.items() if info.get("status") == "retrying"])
+        lines.append(
+            f"{style('MCP status', ANSI.BOLD, ANSI.BRIGHT_WHITE)} · connected={connected} degraded={degraded} retrying={retrying}"
+        )
+        mcp_chips = []
+        for name, info in sorted(mcp_sessions.items()):
+            status = info.get("status", "unknown")
+            if status == "connected":
+                mcp_chips.append(pill(f"MCP {name}:up", fg=ANSI.BLACK, bg=ANSI.BG_GREEN))
+            elif status == "retrying":
+                mcp_chips.append(pill(f"MCP {name}:retry", fg=ANSI.BLACK, bg=ANSI.BG_YELLOW))
+            else:
+                mcp_chips.append(pill(f"MCP {name}:down", fg=ANSI.WHITE, bg=ANSI.BG_RED))
+        lines.extend(wrap_pills(mcp_chips, term_width() - 8))
+        checked_at = state.get("mcp", {}).get("last_health_check_at")
+        if checked_at:
+            lines.append(f"{style('MCP health', ANSI.BOLD, ANSI.BRIGHT_WHITE)} · last-check={checked_at}")
     box("Mission Telemetry", lines, accent=ANSI.BRIGHT_BLUE)
 
 
@@ -1349,10 +1375,18 @@ def ensure_mcp_services():
                     "type": "command",
                     "connect": "echo 'Setea comando real para conectar DTD en config/mcp_services.json'",
                     "health": "echo 'dart-dtd no configurado'",
+                    "retry_count": 2,
+                    "retry_delay_sec": 1,
+                    "health_timeout_sec": 3,
+                    "auto_reconnect": True,
                 },
                 "local-web-api": {
                     "type": "http",
                     "url": "http://127.0.0.1:8080/health",
+                    "retry_count": 2,
+                    "retry_delay_sec": 1,
+                    "health_timeout_sec": 3,
+                    "auto_reconnect": False,
                 },
             }
         }
@@ -1417,18 +1451,37 @@ def mcp_connect_service(name, state):
 
     sessions = state.setdefault("mcp", {}).setdefault("sessions", {})
     srv_type = service.get("type", "command")
+    retry_count = int(service.get("retry_count", 2))
+    retry_delay = float(service.get("retry_delay_sec", 1))
+    timeout_sec = int(service.get("health_timeout_sec", 3))
 
     if srv_type == "http":
         url = service.get("url", "")
         if not url:
             print_notice(f"Servicio MCP HTTP sin URL: {name}", "error")
             return False
-        rc = subprocess.run(f'curl -fsS "{url}" >/dev/null 2>&1', shell=True).returncode
-        if rc == 0:
-            sessions[name] = {"type": "http", "status": "connected", "url": url}
-            print_notice(f"MCP conectado ({name}) por HTTP: {url}", "success")
-            return True
-        sessions[name] = {"type": "http", "status": "unreachable", "url": url}
+        for attempt in range(1, retry_count + 2):
+            rc = subprocess.run(f'curl -fsS --max-time {timeout_sec} "{url}" >/dev/null 2>&1', shell=True).returncode
+            if rc == 0:
+                sessions[name] = {
+                    "type": "http",
+                    "status": "connected",
+                    "url": url,
+                    "attempts": attempt,
+                    "retry_count": retry_count,
+                }
+                print_notice(f"MCP conectado ({name}) por HTTP: {url} (attempt {attempt})", "success")
+                return True
+            sessions[name] = {
+                "type": "http",
+                "status": "retrying" if attempt <= retry_count else "unreachable",
+                "url": url,
+                "attempts": attempt,
+                "retry_count": retry_count,
+            }
+            if attempt <= retry_count:
+                print_notice(f"MCP retry {attempt}/{retry_count} para {name}", "warn")
+                time.sleep(retry_delay)
         print_notice(f"MCP no respondió ({name}) en {url}", "warn")
         return False
 
@@ -1437,10 +1490,93 @@ def mcp_connect_service(name, state):
         print_notice(f"Servicio MCP sin comando de conexión: {name}", "error")
         return False
 
-    proc = subprocess.Popen(connect_cmd, shell=True)
-    sessions[name] = {"type": "command", "status": "connected", "pid": proc.pid, "connect": connect_cmd}
-    print_notice(f"MCP conectado ({name}) con PID {proc.pid}", "success")
-    return True
+    for attempt in range(1, retry_count + 2):
+        proc = subprocess.Popen(connect_cmd, shell=True)
+        time.sleep(0.2)
+        if proc.poll() is None:
+            sessions[name] = {
+                "type": "command",
+                "status": "connected",
+                "pid": proc.pid,
+                "connect": connect_cmd,
+                "attempts": attempt,
+                "retry_count": retry_count,
+            }
+            print_notice(f"MCP conectado ({name}) con PID {proc.pid} (attempt {attempt})", "success")
+            return True
+        sessions[name] = {
+            "type": "command",
+            "status": "retrying" if attempt <= retry_count else "failed",
+            "connect": connect_cmd,
+            "attempts": attempt,
+            "retry_count": retry_count,
+        }
+        if attempt <= retry_count:
+            print_notice(f"MCP retry {attempt}/{retry_count} para {name}", "warn")
+            time.sleep(retry_delay)
+    print_notice(f"No se pudo levantar MCP ({name})", "error")
+    return False
+
+
+def mcp_health_check_service(name, state, service=None):
+    services = ensure_mcp_services().get("services", {})
+    cfg = service or services.get(name)
+    if not cfg:
+        return False
+
+    sessions = state.setdefault("mcp", {}).setdefault("sessions", {})
+    info = sessions.get(name)
+    if not info:
+        return False
+
+    timeout_sec = int(cfg.get("health_timeout_sec", 3))
+    srv_type = cfg.get("type", info.get("type", "command"))
+
+    if srv_type == "http":
+        url = cfg.get("url") or info.get("url")
+        if not url:
+            info["status"] = "failed"
+            return False
+        rc = subprocess.run(f'curl -fsS --max-time {timeout_sec} "{url}" >/dev/null 2>&1', shell=True).returncode
+        info["status"] = "connected" if rc == 0 else "unreachable"
+        info["url"] = url
+        return rc == 0
+
+    health_cmd = cfg.get("health", "").strip()
+    pid = info.get("pid")
+    if pid:
+        alive = subprocess.run(f'kill -0 {int(pid)} >/dev/null 2>&1', shell=True).returncode == 0
+        if alive:
+            if health_cmd:
+                rc = subprocess.run(health_cmd, shell=True).returncode
+                info["status"] = "connected" if rc == 0 else "failed"
+                return rc == 0
+            info["status"] = "connected"
+            return True
+
+    if health_cmd:
+        rc = subprocess.run(health_cmd, shell=True).returncode
+        info["status"] = "connected" if rc == 0 else "failed"
+        return rc == 0
+
+    info["status"] = "failed"
+    return False
+
+
+def refresh_mcp_health(state, auto_retry=False):
+    services = ensure_mcp_services().get("services", {})
+    sessions = state.setdefault("mcp", {}).setdefault("sessions", {})
+    if not sessions:
+        return
+    for name in list(sessions.keys()):
+        ok = mcp_health_check_service(name, state, services.get(name))
+        if ok:
+            continue
+        cfg = services.get(name, {})
+        if auto_retry and cfg.get("auto_reconnect", False):
+            sessions[name]["status"] = "retrying"
+            mcp_connect_service(name, state)
+    state.setdefault("mcp", {})["last_health_check_at"] = datetime.now().strftime("%H:%M:%S")
 
 
 def mcp_disconnect_service(name, state):
@@ -1457,22 +1593,28 @@ def mcp_disconnect_service(name, state):
 
 
 def show_mcp_dashboard(state):
+    refresh_mcp_health(state, auto_retry=True)
     services = ensure_mcp_services().get("services", {})
     sessions = state.setdefault("mcp", {}).setdefault("sessions", {})
     lines = [style("Configured services", ANSI.BOLD, ANSI.BRIGHT_WHITE)]
     if not services:
         lines.append("- (none)")
     for name, cfg in sorted(services.items()):
-        lines.append(f"- {name} | type={cfg.get('type', 'command')}")
+        lines.append(
+            f"- {name} | type={cfg.get('type', 'command')} | retry={cfg.get('retry_count', 2)} | "
+            f"delay={cfg.get('retry_delay_sec', 1)}s | auto_reconnect={cfg.get('auto_reconnect', False)}"
+        )
     lines.extend(["", style("Connected sessions", ANSI.BOLD, ANSI.BRIGHT_WHITE)])
     if not sessions:
         lines.append("- (none)")
     for name, info in sorted(sessions.items()):
         lines.append(
             f"- {name} | status={info.get('status', 'unknown')} | "
+            f"attempts={info.get('attempts', 0)} | "
             f"{('pid=' + str(info.get('pid'))) if info.get('pid') else ('url=' + str(info.get('url', '-')))}"
         )
     box("MCP Service Bridge", lines, accent=ANSI.BRIGHT_CYAN)
+    render_footer(state)
 
 
 def chat_help_lines():
@@ -1491,6 +1633,7 @@ def chat_help_lines():
         "/memory                      - abrir memoria por agente",
         "/code                        - abrir workspace de código del proyecto",
         "/mcp                         - ver dashboard MCP",
+        "/mcp health                  - ejecutar health-check + auto-retry",
         "/mcp connect <name>          - conectar servicio MCP configurado",
         "/mcp disconnect <name>       - desconectar servicio MCP",
         "/mirror on|off               - activar/desactivar pantalla duplicada",
@@ -1748,6 +1891,7 @@ def chat_assistant(state):
     )
 
     while True:
+        refresh_mcp_health(state, auto_retry=True)
         raw = input(f"\n{style('💬', ANSI.BRIGHT_CYAN, ANSI.BOLD)} Chat> ").strip()
         if not raw:
             continue
@@ -1762,6 +1906,7 @@ def chat_assistant(state):
             box("Chat commands", chat_help_lines(), accent=ANSI.BRIGHT_BLUE)
             continue
         if command == "status":
+            refresh_mcp_health(state, auto_retry=True)
             render_footer(state)
             continue
         if command == "agents":
@@ -1824,22 +1969,29 @@ def chat_assistant(state):
                 show_mcp_dashboard(state)
                 continue
             action = args[0].lower()
+            if action == "health":
+                refresh_mcp_health(state, auto_retry=True)
+                show_mcp_dashboard(state)
+                continue
             if action == "connect":
                 if len(args) < 2:
                     print_notice("Uso: /mcp connect <name>", "warn")
                 else:
                     mcp_connect_service(args[1], state)
+                    refresh_mcp_health(state, auto_retry=False)
+                    render_footer(state)
                 continue
             if action == "disconnect":
                 if len(args) < 2:
                     print_notice("Uso: /mcp disconnect <name>", "warn")
                 else:
                     mcp_disconnect_service(args[1], state)
+                    render_footer(state)
                 continue
             if action == "list":
                 show_mcp_dashboard(state)
                 continue
-            print_notice("Uso: /mcp [list|connect <name>|disconnect <name>]", "warn")
+            print_notice("Uso: /mcp [list|health|connect <name>|disconnect <name>]", "warn")
             continue
         if command == "mirror":
             if args and args[0].lower() in {"on", "off"}:

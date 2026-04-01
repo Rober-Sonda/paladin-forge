@@ -70,6 +70,7 @@ Comandos útiles en chat:
 - `/memory`
 - `/code` o `/code <ruta/archivo>`
 - `/mcp`
+- `/mcp health`
 - `/mcp connect <servicio>`
 - `/mcp disconnect <servicio>`
 - `/mirror on|off`
@@ -100,10 +101,18 @@ También puedes pedirlo en lenguaje natural:
 ### Servicios MCP desde chat
 Sin salir del chat puedes gestionar conexiones a servicios externos tipo MCP:
 - ver estado: `/mcp`
+- health-check + auto-retry: `/mcp health`
 - conectar: `/mcp connect <name>`
 - desconectar: `/mcp disconnect <name>`
 
 Configura servicios en `config/mcp_services.json` (se genera automáticamente al primer uso).
+Puedes controlar resiliencia por servicio con:
+- `retry_count`
+- `retry_delay_sec`
+- `health_timeout_sec`
+- `auto_reconnect`
+
+El footer de telemetría muestra estado MCP en vivo (`connected/degraded/retrying`) y última hora de health-check.
 
 ## Console walkthrough (capturas)
 
