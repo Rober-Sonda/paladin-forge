@@ -56,6 +56,15 @@ Desde la raíz del repo:
 ### Token & cost dashboard
 ![AgentForge Token Cost](docs/screenshots/03-token-cost.svg)
 
+## Demo rápida (60s)
+- Guion y pasos: [docs/demo/DEMO_60S.md](docs/demo/DEMO_60S.md)
+- Script automático de sesión: `scripts/run_demo_60s.sh`
+- Pack de publicación (X/LinkedIn): [docs/demo/SOCIAL_KIT.md](docs/demo/SOCIAL_KIT.md)
+
+Ejecutar demo automática:
+- `chmod +x scripts/run_demo_60s.sh`
+- `./scripts/run_demo_60s.sh`
+
 ### 4. Inicializar un proyecto
 - `agentforge init . --template full-delivery`
 
